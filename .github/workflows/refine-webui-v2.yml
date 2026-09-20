@@ -1,0 +1,157 @@
+name: Refine WebUI V2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refine-webui-v2
+  cancel-in-progress: false
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f webui.py
+          test -f main.py
+          test -f templates/index.html
+          test -f scripts/refine_webui_v2.py
+
+      - name: Apply V2 refinement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/refine_webui_v2.py
+
+      - name: Python syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile webui.py
+          python -m py_compile main.py
+          python -m py_compile scripts/refine_webui_v2.py
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet \
+            "Flask>=3,<4" \
+            "requests>=2.31,<3" \
+            "loguru>=0.7,<1"
+
+      - name: Jinja template check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from jinja2 import Environment
+
+          text = Path("templates/index.html").read_text(encoding="utf-8")
+          Environment().parse(text)
+
+          for key in ("添加主播", "已添加主播", "最近事件", "/api/status"):
+              if key not in text:
+                  raise SystemExit("模板缺少: " + key)
+
+          print("Jinja template check passed.")
+          PY
+
+      - name: Flask smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          import types
+
+          fake = types.ModuleType("streamget.logger")
+
+          class Logger:
+              def info(self, *args, **kwargs):
+                  pass
+
+              def error(self, *args, **kwargs):
+                  pass
+
+          fake.logger = Logger()
+          sys.modules["streamget.logger"] = fake
+
+          import webui
+
+          client = webui.app.test_client()
+
+          for path in (
+              "/home",
+              "/settings",
+              "/url_config",
+              "/recording_settings",
+              "/push_settings",
+              "/cookie_settings",
+              "/account_settings",
+              "/xiaolan_webdav",
+              "/api/status",
+              "/log",
+          ):
+              response = client.get(path)
+              if response.status_code != 200:
+                  raise SystemExit(f"{path} -> HTTP {response.status_code}")
+
+          response = client.post(
+              "/anchors/add",
+              data={"anchor_url": "abc"},
+              follow_redirects=False
+          )
+
+          if response.status_code not in (302, 303):
+              raise SystemExit("新增主播路由异常")
+
+          data = client.get("/api/status").get_json()
+
+          for key in ("counts", "monitors", "events", "updated_at"):
+              if key not in data:
+                  raise SystemExit("/api/status 缺少字段: " + key)
+
+          print("Flask smoke tests passed.")
+          PY
+
+      - name: Diff checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- webui.py templates/index.html; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add webui.py templates/index.html
+          git commit -m "refactor: refine mobile WebUI v2"
+          git push
