@@ -1,4 +1,4 @@
-name: Add Xiaolan WebDAV V1
+name: Xiaolan WebDAV Auto Upload V3
 
 on:
   workflow_dispatch:
@@ -7,14 +7,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: add-xiaolan-webdav-v1
+  group: xiaolan-webdav-auto-upload-v3
   cancel-in-progress: false
 
 jobs:
   patch:
-    name: Add Xiaolan WebDAV
+    name: Xiaolan WebDAV Auto Upload
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -25,87 +25,826 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Backup files
-        run: |
-          mkdir -p .workflow-backup
-          cp webui.py .workflow-backup/webui.py
-          cp templates/index.html .workflow-backup/index.html
-          cp config/config.ini .workflow-backup/config.ini
-
-      - name: Apply Xiaolan WebDAV patch
+      - name: Apply all changes
         shell: bash
         run: |
           python <<'PY'
           from pathlib import Path
+          import re
 
-          # ============================================================
+          # =========================================================
           # 1. config/config.ini
-          # ============================================================
+          # =========================================================
 
           config_path = Path("config/config.ini")
+
           config_text = config_path.read_text(
               encoding="utf-8-sig"
           )
 
-          section = """
+          # 删除旧的小蓝网盘配置段，重新写入完整版本
+          config_text = re.sub(
+              r"\n*\[小蓝网盘\][\s\S]*?(?=\n\[[^\]]+\]|\Z)",
+              "",
+              config_text
+          ).rstrip()
+
+          xiaolan_config = """
           [小蓝网盘]
           WebDAV地址 =
           WebDAV用户名 =
           WebDAV密码 =
-          上传目录 = /直播录像/
+          上传根目录 = /直播录像/
+          自动上传录像 = 否
+          按主播创建文件夹 = 是
+          按日期创建文件夹 = 否
+          上传成功后删除本地 = 否
+          上传失败重试次数 = 3
+          等待MP4最长时间(秒) = 1800
           """
 
-          if "[小蓝网盘]" not in config_text:
-              config_text = (
-                  config_text.rstrip()
-                  + "\n\n"
-                  + section.strip()
-                  + "\n"
+          config_text = (
+              config_text
+              + "\n\n"
+              + xiaolan_config.strip()
+              + "\n"
+          )
+
+          # 自动启用录制完成脚本
+          config_text = re.sub(
+              r"是否录制完成后执行自定义脚本\s*=\s*.*",
+              "是否录制完成后执行自定义脚本 = 是",
+              config_text,
+              count=1
+          )
+
+          config_text = re.sub(
+              r"自定义脚本执行命令\s*=\s*.*",
+              "自定义脚本执行命令 = python upload_after_record.py",
+              config_text,
+              count=1
+          )
+
+          config_path.write_text(
+              config_text,
+              encoding="utf-8-sig"
+          )
+
+          print("OK 1: config.ini")
+
+          # =========================================================
+          # 2. 创建 upload_after_record.py
+          # =========================================================
+
+          uploader = r'''#!/usr/bin/env python3
+
+          import argparse
+          import configparser
+          import os
+          import re
+          import sys
+          import time
+          import urllib.parse
+          from datetime import datetime
+          from pathlib import Path
+
+          import requests
+
+
+          CONFIG_FILE = Path("config/config.ini")
+
+
+          def log(message):
+              print(
+                  f"[XiaolanUpload] {message}",
+                  flush=True
               )
 
-              config_path.write_text(
-                  config_text,
+
+          def yes(value):
+              return str(value).strip().lower() in {
+                  "是",
+                  "yes",
+                  "true",
+                  "1",
+                  "on",
+              }
+
+
+          def safe_name(value):
+              value = str(value or "").strip()
+
+              value = re.sub(
+                  r'[\\/:*?"<>|]',
+                  "_",
+                  value
+              )
+
+              value = re.sub(
+                  r"\s+",
+                  " ",
+                  value
+              ).strip(" ._")
+
+              return value or "未知主播"
+
+
+          def load_config():
+              config = configparser.ConfigParser(
+                  interpolation=None
+              )
+
+              config.read(
+                  CONFIG_FILE,
                   encoding="utf-8-sig"
               )
 
-              print("OK: 添加 [小蓝网盘] 配置")
-          else:
-              print("SKIP: [小蓝网盘] 已存在")
+              if "小蓝网盘" not in config:
+                  raise RuntimeError(
+                      "config.ini 缺少 [小蓝网盘]"
+                  )
 
-          # ============================================================
-          # 2. webui.py
-          # ============================================================
+              return config["小蓝网盘"]
 
-          webui_path = Path("webui.py")
-          webui_text = webui_path.read_text(
+
+          def join_url(base, *parts):
+              base = base.rstrip("/") + "/"
+
+              encoded = []
+
+              for part in parts:
+                  part = str(part).strip("/")
+
+                  if not part:
+                      continue
+
+                  encoded.append(
+                      urllib.parse.quote(
+                          part,
+                          safe=""
+                      )
+                  )
+
+              return base + "/".join(encoded)
+
+
+          def ensure_collection(
+              session,
+              url,
+              auth
+          ):
+              response = session.request(
+                  "PROPFIND",
+                  url,
+                  auth=auth,
+                  headers={
+                      "Depth": "0",
+                      "User-Agent":
+                          "DouyinLiveRecorder-WebDAV"
+                  },
+                  timeout=30,
+                  allow_redirects=True
+              )
+
+              if response.status_code in (
+                  200,
+                  207,
+              ):
+                  return
+
+              if response.status_code == 404:
+                  mkcol = session.request(
+                      "MKCOL",
+                      url,
+                      auth=auth,
+                      timeout=30,
+                      allow_redirects=True
+                  )
+
+                  if mkcol.status_code not in (
+                      200,
+                      201,
+                      204,
+                      301,
+                      302,
+                      405,
+                  ):
+                      raise RuntimeError(
+                          "创建远程目录失败 "
+                          f"HTTP {mkcol.status_code}"
+                      )
+
+                  return
+
+              if response.status_code in (
+                  301,
+                  302,
+                  405,
+              ):
+                  return
+
+              raise RuntimeError(
+                  "检查远程目录失败 "
+                  f"HTTP {response.status_code}"
+              )
+
+
+          def ensure_remote_path(
+              session,
+              base_url,
+              root_dir,
+              anchor_dir,
+              date_dir,
+              auth
+          ):
+              current = base_url.rstrip("/")
+
+              path_parts = []
+
+              for source in (
+                  root_dir,
+                  anchor_dir,
+                  date_dir,
+              ):
+                  if not source:
+                      continue
+
+                  for part in str(source).split("/"):
+                      part = part.strip()
+
+                      if part:
+                          path_parts.append(part)
+
+              for part in path_parts:
+                  current = join_url(
+                      current,
+                      part
+                  )
+
+                  ensure_collection(
+                      session,
+                      current,
+                      auth
+                  )
+
+              return current
+
+
+          def stable_file(
+              path,
+              checks=3,
+              interval=3
+          ):
+              previous = -1
+
+              for _ in range(checks):
+                  if not path.exists():
+                      return False
+
+                  size = path.stat().st_size
+
+                  if size <= 0:
+                      return False
+
+                  if previous == size:
+                      return True
+
+                  previous = size
+                  time.sleep(interval)
+
+              return path.exists() and (
+                  path.stat().st_size > 0
+              )
+
+
+          def find_mp4_files(
+              save_file_path,
+              wait_seconds
+          ):
+              source = Path(save_file_path)
+
+              directory = source.parent
+
+              stem = source.stem
+
+              # 与主程序分段匹配规则保持接近：
+              # xxx_001.ts -> prefix xxx
+              prefix = stem.rsplit(
+                  "_",
+                  1
+              )[0] if "_" in stem else stem
+
+              deadline = (
+                  time.time()
+                  + max(
+                      30,
+                      wait_seconds
+                  )
+              )
+
+              last_seen = []
+              stable_rounds = 0
+
+              log(
+                  "等待 MP4 转换完成，"
+                  f"最长 {wait_seconds} 秒"
+              )
+
+              while time.time() < deadline:
+                  candidates = sorted(
+                      [
+                          p
+                          for p in directory.glob("*.mp4")
+                          if (
+                              p.stem == stem
+                              or
+                              p.stem.startswith(
+                                  prefix
+                              )
+                          )
+                      ],
+                      key=lambda p:
+                          p.stat().st_mtime
+                  )
+
+                  candidates = [
+                      p
+                      for p in candidates
+                      if p.stat().st_size > 0
+                  ]
+
+                  names = [
+                      (
+                          str(p),
+                          p.stat().st_size
+                      )
+                      for p in candidates
+                  ]
+
+                  if candidates and (
+                      names == last_seen
+                  ):
+                      stable_rounds += 1
+                  else:
+                      stable_rounds = 0
+
+                  last_seen = names
+
+                  # 连续稳定几轮，认为转码已经基本完成
+                  if (
+                      candidates
+                      and stable_rounds >= 3
+                      and all(
+                          stable_file(
+                              p,
+                              checks=2,
+                              interval=2
+                          )
+                          for p in candidates
+                      )
+                  ):
+                      return candidates
+
+                  time.sleep(5)
+
+              return [
+                  p
+                  for p in directory.glob("*.mp4")
+                  if (
+                      p.stem == stem
+                      or
+                      p.stem.startswith(
+                          prefix
+                      )
+                  )
+                  and p.stat().st_size > 0
+              ]
+
+
+          def upload_file(
+              session,
+              local_file,
+              remote_dir_url,
+              auth,
+              retries
+          ):
+              remote_url = join_url(
+                  remote_dir_url,
+                  local_file.name
+              )
+
+              for attempt in range(
+                  1,
+                  retries + 1
+              ):
+                  try:
+                      size = (
+                          local_file.stat().st_size
+                      )
+
+                      log(
+                          f"上传 {local_file.name} "
+                          f"({size / 1024 / 1024:.1f} MB) "
+                          f"第 {attempt}/{retries} 次"
+                      )
+
+                      with local_file.open(
+                          "rb"
+                      ) as fp:
+                          response = session.put(
+                              remote_url,
+                              data=fp,
+                              auth=auth,
+                              headers={
+                                  "Content-Type":
+                                      "video/mp4",
+                                  "User-Agent":
+                                      "DouyinLiveRecorder-WebDAV"
+                              },
+                              timeout=(
+                                  30,
+                                  3600
+                              ),
+                              allow_redirects=True
+                          )
+
+                      if response.status_code in (
+                          200,
+                          201,
+                          204,
+                      ):
+                          verify = session.request(
+                              "PROPFIND",
+                              remote_url,
+                              auth=auth,
+                              headers={
+                                  "Depth": "0"
+                              },
+                              timeout=30,
+                              allow_redirects=True
+                          )
+
+                          if verify.status_code in (
+                              200,
+                              207,
+                          ):
+                              log(
+                                  f"上传成功: "
+                                  f"{local_file.name}"
+                              )
+
+                              return True
+
+                          log(
+                              "上传完成但远端校验失败 "
+                              f"HTTP {verify.status_code}"
+                          )
+                      else:
+                          log(
+                              "上传失败 "
+                              f"HTTP {response.status_code}"
+                          )
+
+                  except Exception as exc:
+                      log(
+                          f"上传异常: {exc}"
+                      )
+
+                  if attempt < retries:
+                      wait = min(
+                          60,
+                          attempt * 10
+                      )
+
+                      log(
+                          f"{wait} 秒后重试"
+                      )
+
+                      time.sleep(wait)
+
+              return False
+
+
+          def main():
+              parser = argparse.ArgumentParser(
+                  add_help=False
+              )
+
+              parser.add_argument(
+                  "--record_name",
+                  default=""
+              )
+
+              parser.add_argument(
+                  "--save_file_path",
+                  default=""
+              )
+
+              args, _ = parser.parse_known_args()
+
+              if not args.save_file_path:
+                  log(
+                      "没有收到录像文件路径，"
+                      "跳过上传"
+                  )
+                  return 0
+
+              cfg = load_config()
+
+              if not yes(
+                  cfg.get(
+                      "自动上传录像",
+                      "否"
+                  )
+              ):
+                  log(
+                      "自动上传未开启，跳过"
+                  )
+                  return 0
+
+              webdav_url = cfg.get(
+                  "WebDAV地址",
+                  ""
+              ).strip()
+
+              username = cfg.get(
+                  "WebDAV用户名",
+                  ""
+              ).strip()
+
+              password = cfg.get(
+                  "WebDAV密码",
+                  ""
+              )
+
+              if not webdav_url:
+                  log(
+                      "WebDAV 地址为空，"
+                      "取消上传"
+                  )
+                  return 1
+
+              if not webdav_url.startswith(
+                  ("http://", "https://")
+              ):
+                  log(
+                      "WebDAV 地址格式错误"
+                  )
+                  return 1
+
+              root_dir = cfg.get(
+                  "上传根目录",
+                  "/直播录像/"
+              ).strip()
+
+              by_anchor = yes(
+                  cfg.get(
+                      "按主播创建文件夹",
+                      "是"
+                  )
+              )
+
+              by_date = yes(
+                  cfg.get(
+                      "按日期创建文件夹",
+                      "否"
+                  )
+              )
+
+              delete_local = yes(
+                  cfg.get(
+                      "上传成功后删除本地",
+                      "否"
+                  )
+              )
+
+              try:
+                  retries = max(
+                      1,
+                      int(
+                          cfg.get(
+                              "上传失败重试次数",
+                              "3"
+                          )
+                      )
+                  )
+              except ValueError:
+                  retries = 3
+
+              try:
+                  wait_seconds = max(
+                      30,
+                      int(
+                          cfg.get(
+                              "等待MP4最长时间(秒)",
+                              "1800"
+                          )
+                      )
+                  )
+              except ValueError:
+                  wait_seconds = 1800
+
+              anchor_name = safe_name(
+                  args.record_name
+              )
+
+              # record_name 某些情况下可能带平台或其他前缀，
+              # 优先保留最后一段作为主播目录名
+              if " " in anchor_name:
+                  anchor_name = safe_name(
+                      anchor_name.split(
+                          " ",
+                          1
+                      )[-1]
+                  )
+
+              anchor_dir = (
+                  anchor_name
+                  if by_anchor
+                  else ""
+              )
+
+              date_dir = (
+                  datetime.now().strftime(
+                      "%Y-%m-%d"
+                  )
+                  if by_date
+                  else ""
+              )
+
+              mp4_files = find_mp4_files(
+                  args.save_file_path,
+                  wait_seconds
+              )
+
+              if not mp4_files:
+                  log(
+                      "没有找到转换完成的 MP4，"
+                      "本次不上传，也不会删除原文件"
+                  )
+                  return 1
+
+              session = requests.Session()
+
+              auth = (
+                  username,
+                  password
+              )
+
+              try:
+                  remote_dir = (
+                      ensure_remote_path(
+                          session,
+                          webdav_url,
+                          root_dir,
+                          anchor_dir,
+                          date_dir,
+                          auth
+                      )
+                  )
+              except Exception as exc:
+                  log(
+                      f"创建远端目录失败: {exc}"
+                  )
+                  return 1
+
+              all_success = True
+
+              for mp4_file in mp4_files:
+                  ok = upload_file(
+                      session,
+                      mp4_file,
+                      remote_dir,
+                      auth,
+                      retries
+                  )
+
+                  if not ok:
+                      all_success = False
+
+                      log(
+                          f"保留本地文件: "
+                          f"{mp4_file}"
+                      )
+
+                      continue
+
+                  if delete_local:
+                      try:
+                          mp4_file.unlink()
+
+                          log(
+                              "上传校验成功，"
+                              f"已删除本地: "
+                              f"{mp4_file.name}"
+                          )
+                      except Exception as exc:
+                          log(
+                              "上传成功，但删除"
+                              f"本地失败: {exc}"
+                          )
+
+              if all_success:
+                  log(
+                      "本次录像上传任务完成"
+                  )
+                  return 0
+
+              log(
+                  "部分文件上传失败，"
+                  "失败文件已保留在本地"
+              )
+
+              return 1
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          '''
+
+          # 清除 heredoc 左侧统一缩进
+          uploader_lines = (
+              uploader.splitlines()
+          )
+
+          uploader = "\n".join(
+              line[10:]
+              if line.startswith(
+                  "          "
+              )
+              else line
+              for line in uploader_lines
+          ).lstrip()
+
+          Path(
+              "upload_after_record.py"
+          ).write_text(
+              uploader,
               encoding="utf-8"
           )
 
-          # requests
-          if "import requests" not in webui_text:
-              import_marker = "import subprocess\n"
+          print("OK 2: upload_after_record.py")
 
-              if import_marker not in webui_text:
+          # =========================================================
+          # 3. webui.py
+          # =========================================================
+
+          webui_path = Path("webui.py")
+
+          webui = webui_path.read_text(
+              encoding="utf-8"
+          )
+
+          if "import requests" not in webui:
+              marker = "import subprocess\n"
+
+              if marker not in webui:
                   raise RuntimeError(
-                      "webui.py 中找不到 import subprocess"
+                      "webui.py 找不到 "
+                      "import subprocess"
                   )
 
-              webui_text = webui_text.replace(
-                  import_marker,
-                  import_marker + "import requests\n",
+              webui = webui.replace(
+                  marker,
+                  marker + "import requests\n",
                   1
               )
 
-              print("OK: 添加 requests")
-          else:
-              print("SKIP: requests 已存在")
+          # 删除旧的 V1/V2 小蓝路由，避免重复
+          start_marker = (
+              "@app.route('/xiaolan_webdav'"
+          )
 
-          # 添加小蓝网盘路由
-          if "def xiaolan_webdav_page" not in webui_text:
+          log_marker = (
+              "@app.route('/log')"
+          )
 
-              route_code = r'''
+          start = webui.find(
+              start_marker
+          )
 
-          @app.route('/xiaolan_webdav', methods=['GET', 'POST'])
+          if start >= 0:
+              end = webui.find(
+                  log_marker,
+                  start
+              )
+
+              if end < 0:
+                  raise RuntimeError(
+                      "旧小蓝路由存在，"
+                      "但找不到 /log 结束位置"
+                  )
+
+              webui = (
+                  webui[:start]
+                  + webui[end:]
+              )
+
+          route_code = r'''
+          @app.route(
+              '/xiaolan_webdav',
+              methods=['GET', 'POST']
+          )
           def xiaolan_webdav_page():
               config_path = os.path.join(
                   os.getcwd(),
@@ -113,20 +852,30 @@ jobs:
                   'config.ini'
               )
 
+              config = read_config(
+                  config_path
+              )
+
+              if '小蓝网盘' not in config:
+                  config.add_section(
+                      '小蓝网盘'
+                  )
+
               if request.method == 'POST':
-                  config = read_config(config_path)
-
-                  if '小蓝网盘' not in config:
-                      config.add_section('小蓝网盘')
-
-                  allowed_keys = [
+                  keys = [
                       'WebDAV地址',
                       'WebDAV用户名',
                       'WebDAV密码',
-                      '上传目录',
+                      '上传根目录',
+                      '自动上传录像',
+                      '按主播创建文件夹',
+                      '按日期创建文件夹',
+                      '上传成功后删除本地',
+                      '上传失败重试次数',
+                      '等待MP4最长时间(秒)',
                   ]
 
-                  for key in allowed_keys:
+                  for key in keys:
                       if key in request.form:
                           config.set(
                               '小蓝网盘',
@@ -149,15 +898,6 @@ jobs:
                       )
                   )
 
-              config = read_config(
-                  config_path
-              )
-
-              if '小蓝网盘' not in config:
-                  config.add_section(
-                      '小蓝网盘'
-                  )
-
               return render_template(
                   'index.html',
                   config=config,
@@ -166,7 +906,10 @@ jobs:
               )
 
 
-          @app.route('/xiaolan_webdav/test', methods=['POST'])
+          @app.route(
+              '/xiaolan_webdav/test',
+              methods=['POST']
+          )
           def test_xiaolan_webdav():
               config_path = os.path.join(
                   os.getcwd(),
@@ -181,10 +924,11 @@ jobs:
               if '小蓝网盘' not in config:
                   return {
                       'success': False,
-                      'message': '请先保存 WebDAV 配置'
+                      'message':
+                          '请先保存 WebDAV 配置'
                   }, 400
 
-              webdav_url = config.get(
+              url = config.get(
                   '小蓝网盘',
                   'WebDAV地址',
                   fallback=''
@@ -202,39 +946,36 @@ jobs:
                   fallback=''
               )
 
-              if not webdav_url:
+              if not url:
                   return {
                       'success': False,
-                      'message': 'WebDAV 地址不能为空'
+                      'message':
+                          'WebDAV 地址不能为空'
                   }, 400
 
-              if not (
-                  webdav_url.startswith('https://')
-                  or
-                  webdav_url.startswith('http://')
+              if not url.startswith(
+                  ('http://', 'https://')
               ):
                   return {
                       'success': False,
-                      'message': 'WebDAV 地址必须以 http:// 或 https:// 开头'
+                      'message':
+                          'WebDAV 地址必须以 '
+                          'http:// 或 https:// 开头'
                   }, 400
-
-              headers = {
-                  'Depth': '0',
-                  'User-Agent': (
-                      'DouyinLiveRecorder-WebUI/'
-                      'Xiaolan-WebDAV'
-                  ),
-              }
 
               try:
                   response = requests.request(
                       'PROPFIND',
-                      webdav_url,
+                      url,
                       auth=(
                           username,
                           password
                       ),
-                      headers=headers,
+                      headers={
+                          'Depth': '0',
+                          'User-Agent':
+                              'DouyinLiveRecorder-WebDAV'
+                      },
                       timeout=15,
                       allow_redirects=True
                   )
@@ -247,41 +988,31 @@ jobs:
                   ):
                       return {
                           'success': True,
-                          'message': (
+                          'message':
                               '小蓝网盘 WebDAV '
                               '连接成功'
-                          )
                       }
 
-                  if response.status_code == 401:
-                      message = (
+                  messages = {
+                      401:
                           '认证失败，请检查'
-                          '用户名和密码'
-                      )
+                          '用户名和密码',
+                      403:
+                          '访问被拒绝，请检查'
+                          'WebDAV 权限',
+                      404:
+                          'WebDAV 地址不存在',
+                  }
 
-                  elif response.status_code == 403:
-                      message = (
-                          '服务器拒绝访问，'
-                          '请检查 WebDAV 权限'
-                      )
-
-                  elif response.status_code == 404:
-                      message = (
-                          'WebDAV 地址不存在，'
-                          '请检查地址'
-                      )
-
-                  else:
-                      message = (
-                          '连接失败，HTTP 状态码：'
+                  return {
+                      'success': False,
+                      'message': messages.get(
+                          response.status_code,
+                          '连接失败，HTTP '
                           + str(
                               response.status_code
                           )
                       )
-
-                  return {
-                      'success': False,
-                      'message': message
                   }, 400
 
               except requests.exceptions.Timeout:
@@ -293,47 +1024,59 @@ jobs:
               except requests.exceptions.SSLError:
                   return {
                       'success': False,
-                      'message': 'SSL 证书验证失败'
+                      'message': 'SSL 证书错误'
                   }, 400
 
               except requests.exceptions.RequestException as exc:
-                  logger.warning(
-                      '小蓝网盘 WebDAV '
-                      '连接测试失败: %s',
-                      exc
+                  logger.error(
+                      f'小蓝WebDAV连接失败: {exc}'
                   )
 
                   return {
                       'success': False,
-                      'message': '无法连接 WebDAV 服务器'
+                      'message':
+                          '无法连接 WebDAV 服务器'
                   }, 400
+
+
           '''
 
-              marker = "\n\n@app.route('/log')\n"
+          # 去掉 route_code 左侧统一缩进
+          route_code = "\n".join(
+              line[10:]
+              if line.startswith(
+                  "          "
+              )
+              else line
+              for line in route_code.splitlines()
+          ).lstrip()
 
-              if marker not in webui_text:
-                  raise RuntimeError(
-                      "webui.py 中找不到 /log 路由插入点"
-                  )
+          insert_at = webui.find(
+              "@app.route('/log')"
+          )
 
-              webui_text = webui_text.replace(
-                  marker,
-                  route_code + marker,
-                  1
+          if insert_at < 0:
+              raise RuntimeError(
+                  "webui.py 找不到 /log 路由"
               )
 
-              print("OK: 添加小蓝网盘 WebDAV 路由")
-          else:
-              print("SKIP: 小蓝网盘路由已存在")
+          webui = (
+              webui[:insert_at]
+              + route_code
+              + "\n"
+              + webui[insert_at:]
+          )
 
           webui_path.write_text(
-              webui_text,
+              webui,
               encoding="utf-8"
           )
 
-          # ============================================================
-          # 3. templates/index.html
-          # ============================================================
+          print("OK 3: webui.py")
+
+          # =========================================================
+          # 4. templates/index.html
+          # =========================================================
 
           html_path = Path(
               "templates/index.html"
@@ -343,196 +1086,377 @@ jobs:
               encoding="utf-8"
           )
 
-          # 顶部标签
-          if "active_tab == 'xiaolan_webdav'" not in html:
+          # 清理之前可能留下的菜单项
+          html = re.sub(
+              r'\s*<a[^>]*xiaolan_webdav_page[\s\S]*?</a>',
+              '',
+              html
+          )
 
-              marker = """                <a href="{{ url_for('account_settings_page') }}" class="tab-button {% if active_tab == 'account_settings' %}active{% endif %}">账号密码</a>
-          """
+          account_tab = (
+              '<a href="{{ url_for('
+              "'account_settings_page'"
+              ') }}" '
+          )
 
-              if marker not in html:
-                  raise RuntimeError(
-                      "index.html 中找不到账号密码标签"
-                  )
+          account_index = html.find(
+              account_tab
+          )
 
-              new_tab = marker + """                <a href="{{ url_for('xiaolan_webdav_page') }}" class="tab-button {% if active_tab == 'xiaolan_webdav' %}active{% endif %}">小蓝网盘</a>
-          """
-
-              html = html.replace(
-                  marker,
-                  new_tab,
-                  1
+          if account_index < 0:
+              raise RuntimeError(
+                  "index.html 找不到账号密码菜单"
               )
 
-              print("OK: 添加小蓝网盘顶部标签")
-          else:
-              print("SKIP: 小蓝网盘标签已存在")
+          account_end = html.find(
+              "</a>",
+              account_index
+          )
 
-          # 小蓝网盘页面
-          if "id=\"xiaolan-test-btn\"" not in html:
+          if account_end < 0:
+              raise RuntimeError(
+                  "账号密码菜单没有结束标签"
+              )
 
-              page_code = r'''
-              {% elif active_tab == 'xiaolan_webdav' %}
-              <div class="config-section">
-                  <h2>小蓝网盘 WebDAV</h2>
+          account_end += len("</a>")
 
-                  <p style="
-                      line-height: 1.7;
-                      color: #666;
-                      margin-bottom: 20px;
-                  ">
-                      请在小蓝网盘中开启 WebDAV，
-                      然后把 WebDAV 地址、用户名和密码
-                      填写到这里。
-                  </p>
+          new_tab = '''
+                <a href="{{ url_for('xiaolan_webdav_page') }}"
+                   class="tab-button {% if active_tab == 'xiaolan_webdav' %}active{% endif %}">
+                    小蓝网盘
+                </a>'''
 
-                  <form
-                      action="{{ url_for('xiaolan_webdav_page') }}"
-                      method="post"
-                  >
+          html = (
+              html[:account_end]
+              + new_tab
+              + html[account_end:]
+          )
 
-                      <div class="form-group">
-                          <label for="WebDAV地址">
-                              WebDAV 地址:
-                          </label>
+          # 删除之前可能错误插入的独立页面块
+          html = re.sub(
+              r'\s*\{% if active_tab == [\'"]xiaolan_webdav[\'"] %\}[\s\S]*?\{% endif %\}',
+              '',
+              html
+          )
 
-                          <input
-                              type="text"
-                              id="WebDAV地址"
-                              name="WebDAV地址"
-                              placeholder="https://..."
-                              value="{{ config.get(
-                                  section,
-                                  'WebDAV地址',
-                                  fallback=''
-                              ) }}"
-                          >
-                      </div>
+          # 找到主模板真正的最后一个 {% endif %}
+          # 它就在 </div> + <script> 之前
+          script_marker = (
+              "\n    <script>\n"
+              "        let lastLogContent"
+          )
 
-                      <div class="form-group">
-                          <label for="WebDAV用户名">
-                              WebDAV 用户名:
-                          </label>
+          script_pos = html.find(
+              script_marker
+          )
 
-                          <input
-                              type="text"
-                              id="WebDAV用户名"
-                              name="WebDAV用户名"
-                              value="{{ config.get(
-                                  section,
-                                  'WebDAV用户名',
-                                  fallback=''
-                              ) }}"
-                          >
-                      </div>
+          if script_pos < 0:
+              raise RuntimeError(
+                  "index.html 找不到日志脚本起点"
+              )
 
-                      <div class="form-group">
-                          <label for="WebDAV密码">
-                              WebDAV 密码:
-                          </label>
+          endif_pos = html.rfind(
+              "{% endif %}",
+              0,
+              script_pos
+          )
 
-                          <input
-                              type="password"
-                              id="WebDAV密码"
-                              name="WebDAV密码"
-                              value="{{ config.get(
-                                  section,
-                                  'WebDAV密码',
-                                  fallback=''
-                              ) }}"
-                              style="
-                                  width: calc(100% - 22px);
-                                  padding: 10px;
-                                  border: 1px solid #ccc;
-                                  border-radius: 4px;
-                                  font-size: 1em;
-                                  box-sizing: border-box;
-                              "
-                          >
-                      </div>
+          if endif_pos < 0:
+              raise RuntimeError(
+                  "index.html 找不到主页面 endif"
+              )
 
-                      <div class="form-group">
-                          <label for="上传目录">
-                              上传目录:
-                          </label>
+          page = r'''
+            {% elif active_tab == 'xiaolan_webdav' %}
+            <div class="config-section">
+                <h2>小蓝网盘 WebDAV</h2>
 
-                          <input
-                              type="text"
-                              id="上传目录"
-                              name="上传目录"
-                              placeholder="/直播录像/"
-                              value="{{ config.get(
-                                  section,
-                                  '上传目录',
-                                  fallback='/直播录像/'
-                              ) }}"
-                          >
-                      </div>
+                <p style="
+                    color: #666;
+                    line-height: 1.7;
+                ">
+                    录像默认先以 TS 方式安全录制，
+                    转换为 MP4 后再上传。
+                    上传成功并完成远端校验后，
+                    才会根据你的设置删除本地 MP4。
+                </p>
 
-                      <button type="submit">
-                          保存 WebDAV 配置
-                      </button>
-                  </form>
+                <form
+                    action="{{ url_for('xiaolan_webdav_page') }}"
+                    method="post"
+                >
+                    <div class="form-group">
+                        <label>WebDAV 地址</label>
 
-                  <button
-                      id="xiaolan-test-btn"
-                      type="button"
-                      style="
-                          background-color: #007bff;
-                          color: white;
-                          padding: 12px 25px;
-                          border: none;
-                          border-radius: 5px;
-                          cursor: pointer;
-                          font-size: 1.05em;
-                          width: 100%;
-                          margin-top: 12px;
-                      "
-                  >
-                      测试 WebDAV 连接
-                  </button>
+                        <input
+                            type="text"
+                            name="WebDAV地址"
+                            placeholder="https://..."
+                            value="{{ config.get(
+                                section,
+                                'WebDAV地址',
+                                fallback=''
+                            ) }}"
+                        >
+                    </div>
 
-                  <div
-                      id="xiaolan-test-result"
-                      style="
-                          margin-top: 15px;
-                          padding: 12px;
-                          border-radius: 5px;
-                          display: none;
-                      "
-                  ></div>
-              </div>
+                    <div class="form-group">
+                        <label>WebDAV 用户名</label>
+
+                        <input
+                            type="text"
+                            name="WebDAV用户名"
+                            value="{{ config.get(
+                                section,
+                                'WebDAV用户名',
+                                fallback=''
+                            ) }}"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label>WebDAV 密码</label>
+
+                        <input
+                            type="password"
+                            name="WebDAV密码"
+                            value="{{ config.get(
+                                section,
+                                'WebDAV密码',
+                                fallback=''
+                            ) }}"
+                            style="
+                                width: calc(100% - 22px);
+                                padding: 10px;
+                                border: 1px solid #ccc;
+                                border-radius: 4px;
+                                box-sizing: border-box;
+                            "
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label>上传根目录</label>
+
+                        <input
+                            type="text"
+                            name="上传根目录"
+                            value="{{ config.get(
+                                section,
+                                '上传根目录',
+                                fallback='/直播录像/'
+                            ) }}"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label>自动上传录像</label>
+
+                        <select
+                            name="自动上传录像"
+                            style="
+                                height: 38px;
+                                width: 200px;
+                            "
+                        >
+                            {% set v = config.get(
+                                section,
+                                '自动上传录像',
+                                fallback='否'
+                            ) %}
+
+                            <option
+                                value="是"
+                                {% if v == '是' %}selected{% endif %}
+                            >是</option>
+
+                            <option
+                                value="否"
+                                {% if v != '是' %}selected{% endif %}
+                            >否</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>按主播创建文件夹</label>
+
+                        <select
+                            name="按主播创建文件夹"
+                            style="
+                                height: 38px;
+                                width: 200px;
+                            "
+                        >
+                            {% set v = config.get(
+                                section,
+                                '按主播创建文件夹',
+                                fallback='是'
+                            ) %}
+
+                            <option
+                                value="是"
+                                {% if v == '是' %}selected{% endif %}
+                            >是</option>
+
+                            <option
+                                value="否"
+                                {% if v != '是' %}selected{% endif %}
+                            >否</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>按日期创建文件夹</label>
+
+                        <select
+                            name="按日期创建文件夹"
+                            style="
+                                height: 38px;
+                                width: 200px;
+                            "
+                        >
+                            {% set v = config.get(
+                                section,
+                                '按日期创建文件夹',
+                                fallback='否'
+                            ) %}
+
+                            <option
+                                value="是"
+                                {% if v == '是' %}selected{% endif %}
+                            >是</option>
+
+                            <option
+                                value="否"
+                                {% if v != '是' %}selected{% endif %}
+                            >否</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            上传成功后删除本地
+                        </label>
+
+                        <select
+                            name="上传成功后删除本地"
+                            style="
+                                height: 38px;
+                                width: 200px;
+                            "
+                        >
+                            {% set v = config.get(
+                                section,
+                                '上传成功后删除本地',
+                                fallback='否'
+                            ) %}
+
+                            <option
+                                value="是"
+                                {% if v == '是' %}selected{% endif %}
+                            >是</option>
+
+                            <option
+                                value="否"
+                                {% if v != '是' %}selected{% endif %}
+                            >否</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>上传失败重试次数</label>
+
+                        <input
+                            type="text"
+                            name="上传失败重试次数"
+                            value="{{ config.get(
+                                section,
+                                '上传失败重试次数',
+                                fallback='3'
+                            ) }}"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label>
+                            等待 MP4 最长时间（秒）
+                        </label>
+
+                        <input
+                            type="text"
+                            name="等待MP4最长时间(秒)"
+                            value="{{ config.get(
+                                section,
+                                '等待MP4最长时间(秒)',
+                                fallback='1800'
+                            ) }}"
+                        >
+                    </div>
+
+                    <button type="submit">
+                        保存小蓝网盘设置
+                    </button>
+                </form>
+
+                <button
+                    type="button"
+                    id="xiaolan-test-btn"
+                    style="
+                        width: 100%;
+                        margin-top: 12px;
+                        padding: 12px;
+                        border: none;
+                        border-radius: 5px;
+                        background: #007bff;
+                        color: white;
+                        font-size: 16px;
+                        cursor: pointer;
+                    "
+                >
+                    测试 WebDAV 连接
+                </button>
+
+                <div
+                    id="xiaolan-test-result"
+                    style="
+                        display: none;
+                        margin-top: 12px;
+                        padding: 12px;
+                        border-radius: 5px;
+                    "
+                ></div>
+            </div>
+
           '''
 
-              marker = """
-              {% endif %}
-          """
+          page = "\n".join(
+              line[10:]
+              if line.startswith(
+                  "          "
+              )
+              else line
+              for line in page.splitlines()
+          )
 
-              # 使用页面最后一个 endif
-              index = html.rfind(
-                  marker
+          html = (
+              html[:endif_pos]
+              + page
+              + html[endif_pos:]
+          )
+
+          # 加测试连接 JS，放在 </body> 前
+          if "xiaolan-test-script-v3" not in html:
+              body_pos = html.rfind(
+                  "</body>"
               )
 
-              if index < 0:
+              if body_pos < 0:
                   raise RuntimeError(
-                      "index.html 中找不到页面结束标记"
+                      "index.html 找不到 </body>"
                   )
 
-              html = (
-                  html[:index]
-                  + page_code
-                  + html[index:]
-              )
-
-              print("OK: 添加 WebDAV 配置页面")
-          else:
-              print("SKIP: WebDAV 页面已存在")
-
-          # JS 测试按钮
-          if "xiaolan-test-result" in html and \
-                  "fetch('/xiaolan_webdav/test'" not in html:
-
-              js_code = r'''
-          <script>
+              test_js = r'''
+          <script id="xiaolan-test-script-v3">
           document.addEventListener(
               'DOMContentLoaded',
               function () {
@@ -555,7 +1479,7 @@ jobs:
                       async function () {
                           button.disabled = true;
                           button.textContent =
-                              '正在测试连接...';
+                              '正在测试...';
 
                           result.style.display =
                               'block';
@@ -610,7 +1534,7 @@ jobs:
                                   '#721c24';
 
                               result.textContent =
-                                  '请求失败，请检查服务是否正常运行';
+                                  '请求失败';
                           } finally {
                               button.disabled = false;
 
@@ -622,48 +1546,44 @@ jobs:
               }
           );
           </script>
+
           '''
 
-              body_marker = "</body>"
-
-              if body_marker not in html:
-                  raise RuntimeError(
-                      "index.html 中找不到 </body>"
+              test_js = "\n".join(
+                  line[10:]
+                  if line.startswith(
+                      "          "
                   )
-
-              html = html.replace(
-                  body_marker,
-                  js_code
-                  + "\n"
-                  + body_marker,
-                  1
+                  else line
+                  for line in test_js.splitlines()
               )
 
-              print("OK: 添加连接测试 JavaScript")
+              html = (
+                  html[:body_pos]
+                  + test_js
+                  + html[body_pos:]
+              )
 
           html_path.write_text(
               html,
               encoding="utf-8"
           )
 
+          print("OK 4: templates/index.html")
+
           print("")
-          print("==============================")
-          print("小蓝网盘 WebDAV V1 修改完成")
-          print("==============================")
-
+          print("============================")
+          print("V3 patch completed")
+          print("============================")
           PY
-
-      - name: Show changed files
-        run: |
-          git status --short
-          echo
-          git diff --stat
 
       - name: Check diff
         run: |
           git diff --check
+          git status --short
+          git diff --stat
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -672,35 +1592,82 @@ jobs:
         run: |
           python -m py_compile webui.py
           python -m py_compile main.py
+          python -m py_compile upload_after_record.py
 
-      - name: Test Flask routes
+      - name: Flask route check
         run: |
           python <<'PY'
           import webui
 
-          rules = {
+          routes = {
               rule.rule
               for rule in webui.app.url_map.iter_rules()
           }
 
           required = {
-              '/xiaolan_webdav',
-              '/xiaolan_webdav/test',
+              "/xiaolan_webdav",
+              "/xiaolan_webdav/test",
           }
 
-          missing = required - rules
+          missing = required - routes
 
           if missing:
               raise RuntimeError(
                   f"缺少 Flask 路由: {missing}"
               )
 
-          print(
-              "OK: 小蓝网盘 Flask 路由检查通过"
-          )
+          print("OK: Flask routes")
           PY
 
-      - name: Verify config
+      - name: Template render check
+        run: |
+          python <<'PY'
+          import webui
+
+          client = webui.app.test_client()
+
+          response = client.get(
+              "/xiaolan_webdav"
+          )
+
+          print(
+              "HTTP:",
+              response.status_code
+          )
+
+          if response.status_code != 200:
+              print(
+                  response.data.decode(
+                      "utf-8",
+                      errors="replace"
+                  )
+              )
+
+              raise RuntimeError(
+                  "小蓝网盘页面渲染失败"
+              )
+
+          html = response.data.decode(
+              "utf-8",
+              errors="replace"
+          )
+
+          for text in [
+              "小蓝网盘",
+              "WebDAV 地址",
+              "按主播创建文件夹",
+              "上传成功后删除本地",
+              "测试 WebDAV 连接",
+          ]:
+              if text not in html:
+                  raise RuntimeError(
+                      f"页面缺少: {text}"
+                  )
+
+          print("OK: template render")
+          PY
+
+      - name: Config check
         run: |
           python <<'PY'
           import configparser
@@ -710,71 +1677,118 @@ jobs:
           )
 
           config.read(
-              'config/config.ini',
-              encoding='utf-8-sig'
+              "config/config.ini",
+              encoding="utf-8-sig"
           )
 
-          if '小蓝网盘' not in config:
+          if "小蓝网盘" not in config:
               raise RuntimeError(
-                  '缺少 [小蓝网盘] 配置'
+                  "缺少 [小蓝网盘]"
               )
 
-          required = [
-              'webdav地址',
-              'webdav用户名',
-              'webdav密码',
-              '上传目录',
+          section = config[
+              "小蓝网盘"
           ]
 
-          section = config['小蓝网盘']
+          required = [
+              "webdav地址",
+              "webdav用户名",
+              "webdav密码",
+              "上传根目录",
+              "自动上传录像",
+              "按主播创建文件夹",
+              "按日期创建文件夹",
+              "上传成功后删除本地",
+              "上传失败重试次数",
+              "等待mp4最长时间(秒)",
+          ]
 
           for key in required:
               if key not in section:
                   raise RuntimeError(
-                      f'缺少配置项: {key}'
+                      f"缺少配置: {key}"
                   )
 
-          print(
-              'OK: 小蓝网盘配置检查通过'
-          )
+          recording = config[
+              "录制设置"
+          ]
+
+          if (
+              recording.get(
+                  "是否录制完成后执行自定义脚本"
+              )
+              != "是"
+          ):
+              raise RuntimeError(
+                  "录制完成脚本未启用"
+              )
+
+          if (
+              "upload_after_record.py"
+              not in recording.get(
+                  "自定义脚本执行命令",
+                  ""
+              )
+          ):
+              raise RuntimeError(
+                  "上传脚本没有接入"
+              )
+
+          print("OK: config")
           PY
+
+      - name: Uploader dry-run check
+        run: |
+          python upload_after_record.py \
+            --record_name "测试主播" \
+            --save_file_path "/tmp/test.ts"
 
       - name: Commit changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config \
+            user.name \
+            "github-actions[bot]"
 
-          if git diff --quiet; then
-            echo "没有需要提交的修改"
-            exit 0
-          fi
+          git config \
+            user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
             webui.py \
             templates/index.html \
-            config/config.ini
+            config/config.ini \
+            upload_after_record.py
 
-          git commit -m "feat: add Xiaolan WebDAV settings"
+          if git diff --cached --quiet; then
+            echo "没有需要提交的修改"
+            exit 0
+          fi
+
+          git commit \
+            -m "feat: add Xiaolan WebDAV MP4 auto upload"
 
           git push origin HEAD:main
 
       - name: Summary
         run: |
           {
-            echo "## ✅ 小蓝网盘 WebDAV V1"
+            echo "## ✅ 小蓝网盘 WebDAV V3"
             echo
             echo "已完成："
             echo
-            echo "- WebUI 新增「小蓝网盘」页面"
-            echo "- WebDAV 地址配置"
-            echo "- WebDAV 用户名配置"
-            echo "- WebDAV 密码配置"
-            echo "- 上传目录配置"
+            echo "- 修复上版模板插入失败"
+            echo "- WebUI 小蓝网盘配置页"
             echo "- WebDAV 一键连接测试"
-            echo "- Python 语法检查"
-            echo "- Flask 路由检查"
-            echo "- 配置文件检查"
+            echo "- 自动上传录像开关"
+            echo "- 等待 MP4 转换完成"
+            echo "- 优先上传 MP4"
+            echo "- 每个主播独立文件夹"
+            echo "- 可选按日期再分文件夹"
+            echo "- 上传失败自动重试"
+            echo "- 上传后远端校验"
+            echo "- 校验成功后可删除本地 MP4"
+            echo "- 上传失败保留本地文件"
             echo
-            echo "本版本不会上传录像，也不会删除本地录像。"
-            echo "先确认 WebDAV 测试成功后，再做自动上传 V2。"
+            echo "默认：自动上传=否，自动删除=否。"
+            echo "请先测试 WebDAV 连接成功，再手动开启。"
           } >> "$GITHUB_STEP_SUMMARY"
