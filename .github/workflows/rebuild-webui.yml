@@ -48,11 +48,14 @@ jobs:
           python -m py_compile main.py
           python -m py_compile scripts/rebuild_webui.py
 
-      - name: Install minimal test dependencies
+      - name: Install test dependencies
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check --quiet "Flask>=3,<4" "requests>=2.31,<3" "loguru>=0.7,<1"
+          python -m pip install --disable-pip-version-check --quiet \
+            "Flask>=3,<4" \
+            "requests>=2.31,<3" \
+            "loguru>=0.7,<1"
 
       - name: Template checks
         shell: bash
@@ -62,8 +65,7 @@ jobs:
           from pathlib import Path
           from jinja2 import Environment
 
-          p = Path("templates/index.html")
-          text = p.read_text(encoding="utf-8")
+          text = Path("templates/index.html").read_text(encoding="utf-8")
 
           required = [
               "/api/status",
@@ -77,35 +79,34 @@ jobs:
           if missing:
               raise SystemExit("模板缺少关键内容: " + ", ".join(missing))
 
-          # 使用真正的 Jinja 解析器，不再用 {{ / }} 数量硬判断。
           Environment().parse(text)
           print("Jinja template parse passed.")
           PY
-
-      - name: Install minimal test dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check --quiet "Flask>=3,<4" "requests>=2.31,<3" "loguru>=0.7,<1"
 
       - name: Flask route smoke test
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import sys, types
+          import sys
+          import types
 
-          # 避免测试阶段加载完整录制依赖，只提供 logger 占位。
           fake = types.ModuleType("streamget.logger")
-          class L:
-              def info(self, *a, **k): pass
-              def error(self, *a, **k): pass
-          fake.logger = L()
+
+          class Logger:
+              def info(self, *args, **kwargs):
+                  pass
+
+              def error(self, *args, **kwargs):
+                  pass
+
+          fake.logger = Logger()
           sys.modules["streamget.logger"] = fake
 
           import webui
 
           client = webui.app.test_client()
+
           paths = [
               "/home",
               "/settings",
@@ -118,12 +119,14 @@ jobs:
               "/api/status",
               "/log",
           ]
+
           for path in paths:
               response = client.get(path)
               if response.status_code != 200:
                   raise SystemExit(f"{path} -> HTTP {response.status_code}")
 
           data = client.get("/api/status").get_json()
+
           for key in ("counts", "monitors", "events", "updated_at"):
               if key not in data:
                   raise SystemExit(f"/api/status 缺少字段: {key}")
@@ -137,12 +140,12 @@ jobs:
           set -euo pipefail
           git diff --check
           git status --short
-          git diff -- webui.py templates/index.html
 
       - name: Commit changes
         shell: bash
         run: |
           set -euo pipefail
+
           if git diff --quiet -- webui.py templates/index.html; then
             echo "No changes to commit."
             exit 0
