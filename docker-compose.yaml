@@ -1,16 +1,24 @@
-version: '3.8'
+version: "3.8"
 
 services:
   app:
-    image: ihmily/douyin-live-recorder:latest
+    build: .
+    container_name: douyin-live-recorder-webui
+
+    ports:
+      - "5000:5000"
+
     environment:
       - TERM=xterm-256color
-    tty: true
-    stdin_open: true
-    #build: .
+      - TZ=Asia/Shanghai
+
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs
       - ./backup_config:/app/backup_config
       - ./downloads:/app/downloads
-    restart: always
+
+    restart: unless-stopped
+
+    tty: true
+    stdin_open: true
