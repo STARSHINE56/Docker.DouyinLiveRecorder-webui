@@ -1,0 +1,148 @@
+name: Rebuild WebUI Dashboard
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebuild-webui-dashboard
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f main.py
+          test -f webui.py
+          test -f templates/index.html
+          test -f config/config.ini
+          test -f scripts/rebuild_webui.py
+
+      - name: Rebuild WebUI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/rebuild_webui.py
+
+      - name: Python syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile webui.py
+          python -m py_compile main.py
+          python -m py_compile scripts/rebuild_webui.py
+
+      - name: Template static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("templates/index.html")
+          text = p.read_text(encoding="utf-8")
+          required = [
+              "/api/status",
+              "主播监控",
+              "最近事件",
+              "小蓝网盘",
+              "url_for('home_page')",
+              "url_for('settings_page')",
+          ]
+          missing = [x for x in required if x not in text]
+          if missing:
+              raise SystemExit("模板缺少关键内容: " + ", ".join(missing))
+          if text.count("{%") != text.count("%}"):
+              raise SystemExit("Jinja 控制块数量不匹配")
+          if text.count("{{") != text.count("}}"):
+              raise SystemExit("Jinja 表达式数量不匹配")
+          print("Template checks passed.")
+          PY
+
+      - name: Install minimal test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet "Flask>=3,<4" "requests>=2.31,<3" "loguru>=0.7,<1"
+
+      - name: Flask route smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys, types
+
+          # 避免测试阶段加载完整录制依赖，只提供 logger 占位。
+          fake = types.ModuleType("streamget.logger")
+          class L:
+              def info(self, *a, **k): pass
+              def error(self, *a, **k): pass
+          fake.logger = L()
+          sys.modules["streamget.logger"] = fake
+
+          import webui
+
+          client = webui.app.test_client()
+          paths = [
+              "/home",
+              "/settings",
+              "/url_config",
+              "/recording_settings",
+              "/push_settings",
+              "/cookie_settings",
+              "/account_settings",
+              "/xiaolan_webdav",
+              "/api/status",
+              "/log",
+          ]
+          for path in paths:
+              response = client.get(path)
+              if response.status_code != 200:
+                  raise SystemExit(f"{path} -> HTTP {response.status_code}")
+
+          data = client.get("/api/status").get_json()
+          for key in ("counts", "monitors", "events", "updated_at"):
+              if key not in data:
+                  raise SystemExit(f"/api/status 缺少字段: {key}")
+
+          print("Flask smoke test passed.")
+          PY
+
+      - name: Git diff check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git diff -- webui.py templates/index.html
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- webui.py templates/index.html; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add webui.py templates/index.html
+          git commit -m "refactor: rebuild WebUI dashboard"
+          git push
