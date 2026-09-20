@@ -1,917 +1,147 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DouyinLiveRecorder 配置</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 20px;
-                background-color: #f4f7f6;
-                color: #333;
-            }
-            .container {
-                max-width: 900px;
-                margin: 0 auto;
-                background-color: #fff;
-                padding: 30px;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            }
-            h1 {
-                color: #0056b3;
-                text-align: center;
-                margin-bottom: 30px;
-                font-size: 2em;
-            }
-            .tabs {
-                display: flex;
-                justify-content: center;
-                margin-bottom: 20px;
-                border-bottom: 2px solid #e1e1e1;
-            }
-            .tab-button {
-                padding: 10px 20px;
-                text-decoration: none;
-                color: #0056b3;
-                font-weight: bold;
-                border: 1px solid transparent;
-                border-bottom: none;
-                border-radius: 5px 5px 0 0;
-                transition: all 0.3s ease;
-            }
-            .tab-button:hover {
-                background-color: #e9ecef;
-            }
-            .tab-button.active {
-                background-color: #0056b3;
-                color: white;
-                border-color: #0056b3;
-            }
-            .config-section {
-                background-color: #f9f9f9;
-                border: 1px solid #e1e1e1;
-                border-radius: 6px;
-                padding: 20px;
-                margin-bottom: 25px;
-            }
-            h2 {
-                color: #0056b3;
-                margin-top: 0;
-                border-bottom: 2px solid #e1e1e1;
-                padding-bottom: 10px;
-                margin-bottom: 20px;
-                font-size: 1.5em;
-            }
-            h3 {
-                color: #007bff;
-                margin-top: 15px;
-                margin-bottom: 10px;
-                font-size: 1.2em;
-            }
-            .form-group {
-                margin-bottom: 15px;
-            }
-            label {
-                display: block;
-                margin-bottom: 5px;
-                font-weight: bold;
-                color: #555;
-            }
-            input[type="text"],
-            textarea {
-                width: calc(100% - 22px);
-                padding: 10px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                font-size: 1em;
-                box-sizing: border-box;
-                transition: border-color 0.3s;
-            }
-            input[type="text"]:focus,
-            textarea:focus {
-                border-color: #007bff;
-                outline: none;
-            }
-            button[type="submit"] {
-                background-color: #28a745;
-                color: white;
-                padding: 12px 25px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 1.1em;
-                transition: background-color 0.3s ease;
-                display: block;
-                width: 100%;
-                margin-top: 30px;
-            }
-            button[type="submit"]:hover {
-                background-color: #218838;
-            }
-
-  /* MOBILE_UI_V1_START */
-
-  * {
-      box-sizing: border-box;
-  }
-
-  html {
-      -webkit-text-size-adjust: 100%;
-  }
-
-  body {
-      margin: 0;
-      padding: 24px 16px;
-      background:
-          linear-gradient(
-              180deg,
-              #f4f7fb 0%,
-              #eef3f8 100%
-          );
-      min-height: 100vh;
-  }
-
-  .container {
-      width: 100%;
-      max-width: 980px;
-      margin: 0 auto;
-      padding: 28px;
-      border-radius: 18px;
-      background: #ffffff;
-      box-shadow:
-          0 12px 35px
-          rgba(0, 0, 0, 0.08);
-  }
-
-  h1 {
-      margin: 0 0 24px;
-      font-size: 30px;
-      line-height: 1.25;
-      letter-spacing: -0.4px;
-  }
-
-  h1 span {
-      display: block;
-      margin-top: 5px;
-      font-size: 16px;
-      font-weight: 500;
-      color: #718096;
-      letter-spacing: 0;
-  }
-
-  .tabs {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 24px;
-      padding: 8px;
-      border: none;
-      border-radius: 14px;
-      background: #f3f6fa;
-  }
-
-  .tab-button {
-      flex: 0 0 auto;
-      padding: 10px 16px;
-      border: none;
-      border-radius: 10px;
-      color: #41536b;
-      background: transparent;
-      font-size: 14px;
-      line-height: 1.2;
-      font-weight: 600;
-      text-align: center;
-      white-space: nowrap;
-      transition:
-          background-color 0.2s ease,
-          color 0.2s ease,
-          transform 0.2s ease;
-  }
-
-  .tab-button:hover {
-      background: #e6edf7;
-  }
-
-  .tab-button:active {
-      transform: scale(0.97);
-  }
-
-  .tab-button.active {
-      color: #ffffff;
-      background: #1967d2;
-      border: none;
-      box-shadow:
-          0 5px 14px
-          rgba(25, 103, 210, 0.25);
-  }
-
-  .config-section {
-      margin-bottom: 0;
-      padding: 24px;
-      border: 1px solid #e4eaf1;
-      border-radius: 14px;
-      background: #ffffff;
-  }
-
-  h2 {
-      margin-bottom: 20px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #e6ebf1;
-      font-size: 22px;
-      line-height: 1.35;
-  }
-
-  h3 {
-      font-size: 16px;
-  }
-
-  .form-group {
-      margin-bottom: 18px;
-  }
-
-  label {
-      margin-bottom: 8px;
-      color: #44546a;
-      font-size: 14px;
-      line-height: 1.4;
-  }
-
-  input[type="text"],
-  input[type="password"],
-  textarea,
-  select {
-      width: 100% !important;
-      max-width: none !important;
-      min-height: 44px;
-      padding: 10px 12px !important;
-      border: 1px solid #ccd5df !important;
-      border-radius: 9px !important;
-      background: #ffffff;
-      color: #25313f;
-      font-size: 15px !important;
-      line-height: 1.4;
-      outline: none;
-      transition:
-          border-color 0.2s ease,
-          box-shadow 0.2s ease;
-  }
-
-  textarea {
-      min-height: 200px;
-      resize: vertical;
-  }
-
-  input[type="text"]:focus,
-  input[type="password"]:focus,
-  textarea:focus,
-  select:focus {
-      border-color: #1967d2 !important;
-      box-shadow:
-          0 0 0 3px
-          rgba(25, 103, 210, 0.12);
-  }
-
-  button[type="submit"],
-  #xiaolan-test-btn {
-      width: 100% !important;
-      min-height: 46px;
-      padding: 11px 16px !important;
-      border: none !important;
-      border-radius: 10px !important;
-      font-size: 15px !important;
-      font-weight: 600;
-      cursor: pointer;
-  }
-
-  button[type="submit"] {
-      margin-top: 20px !important;
-      background: #1f8f4e;
-      color: #ffffff;
-  }
-
-  button[type="submit"]:hover {
-      background: #187a41;
-  }
-
-  #xiaolan-test-btn {
-      margin-top: 10px !important;
-      background: #1967d2 !important;
-      color: #ffffff !important;
-  }
-
-  #xiaolan-test-result {
-      border-radius: 10px !important;
-      line-height: 1.5;
-  }
-
-  #log_output {
-      width: 100%;
-      max-width: 100%;
-      min-height: 180px;
-      margin: 0;
-      overflow-x: auto;
-      overflow-y: auto;
-      white-space: pre;
-      word-break: normal;
-      font-size: 13px;
-      line-height: 1.55;
-  }
-
-  .config-section form > div[
-      style*="display: flex"
-  ] {
-      gap: 12px;
-      flex-wrap: wrap;
-  }
-
-  @media (
-      max-width: 680px
-  ) {
-      body {
-          padding: 10px;
-      }
-
-      .container {
-          padding: 16px;
-          border-radius: 14px;
-          box-shadow:
-              0 6px 22px
-              rgba(0, 0, 0, 0.07);
-      }
-
-      h1 {
-          margin-bottom: 18px;
-          font-size: 23px;
-          text-align: left;
-      }
-
-      h1 span {
-          font-size: 14px;
-      }
-
-      .tabs {
-          display: grid;
-          grid-template-columns:
-              repeat(
-                  3,
-                  minmax(0, 1fr)
-              );
-          gap: 7px;
-          padding: 7px;
-          margin-bottom: 16px;
-      }
-
-      .tab-button {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 100%;
-          min-width: 0;
-          min-height: 42px;
-          padding: 8px 5px;
-          border-radius: 9px;
-          font-size: 13px;
-          line-height: 1.15;
-          white-space: nowrap;
-      }
-
-      .tabs .tab-button:last-child {
-          grid-column: 1 / -1;
-      }
-
-      .config-section {
-          padding: 16px;
-          border-radius: 12px;
-      }
-
-      h2 {
-          margin-bottom: 16px;
-          padding-bottom: 10px;
-          font-size: 19px;
-      }
-
-      h3 {
-          font-size: 15px;
-      }
-
-      .form-group {
-          margin-bottom: 15px;
-      }
-
-      label {
-          font-size: 14px;
-      }
-
-      input[type="text"],
-      input[type="password"],
-      textarea,
-      select {
-          min-height: 46px;
-          font-size: 16px !important;
-      }
-
-      textarea {
-          min-height: 220px;
-      }
-
-      button[type="submit"],
-      #xiaolan-test-btn {
-          min-height: 48px;
-          font-size: 15px !important;
-      }
-
-      .config-section form > div[
-          style*="display: flex"
-      ] {
-          display: block !important;
-      }
-
-      .config-section form > div[
-          style*="display: flex"
-      ] h2 {
-          width: 100%;
-      }
-
-      .config-section form > div[
-          style*="display: flex"
-      ] button {
-          width: 100% !important;
-          margin:
-              0 0 16px
-              !important;
-      }
-
-      #log_output {
-          max-height: 360px !important;
-          padding: 12px !important;
-          border-radius: 9px !important;
-          font-size: 12px;
-      }
-  }
-
-  @media (
-      max-width: 380px
-  ) {
-      .tabs {
-          grid-template-columns:
-              repeat(
-                  2,
-                  minmax(0, 1fr)
-              );
-      }
-
-      .tabs .tab-button:last-child {
-          grid-column: 1 / -1;
-      }
-
-      .tab-button {
-          font-size: 12.5px;
-      }
-  }
-
-  /* MOBILE_UI_V1_END */
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DouyinLiveRecorder</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#718096;--line:#e7ecf3;--primary:#2563eb;--green:#16a34a;--orange:#f59e0b;--red:#dc2626;--purple:#7c3aed;--shadow:0 8px 24px rgba(15,23,42,.06)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+a{text-decoration:none;color:inherit}.shell{max-width:1180px;margin:auto;padding:18px 16px 92px}.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.brand h1{font-size:23px;margin:0}.brand p{margin:2px 0 0;color:var(--muted);font-size:13px}.service{font-size:13px;color:var(--muted)}
+.mainnav{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:#edf2f8;padding:6px;border-radius:14px;margin-bottom:16px}.mainnav a{padding:10px 8px;text-align:center;border-radius:10px;font-weight:650;color:#52627a}.mainnav a.active{background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(15,23,42,.06)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:18px;margin-bottom:14px}.card h2{font-size:18px;margin:0 0 14px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.refresh{border:0;background:#edf4ff;color:var(--primary);padding:8px 11px;border-radius:10px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}.stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:12px}
+.monitor-list{display:grid;gap:10px}.monitor{border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:1fr auto;gap:8px}.monitor-name{font-weight:750;font-size:16px}.meta{color:var(--muted);font-size:13px;overflow-wrap:anywhere}.badge{align-self:start;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#f1f5f9}.badge.waiting{color:#a16207;background:#fef3c7}.badge.live{color:#166534;background:#dcfce7}.badge.recording{color:#6d28d9;background:#ede9fe}.badge.error{color:#b91c1c;background:#fee2e2}
+.events{display:grid;gap:8px}.event{padding:10px 0;border-bottom:1px solid var(--line);font-size:13px;color:#4b5563;overflow-wrap:anywhere}.event:last-child{border-bottom:0}
+.settings-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.settings-grid a{border:1px solid var(--line);border-radius:14px;padding:16px;background:#fff}.settings-grid b{display:block;margin-bottom:3px}.settings-grid span{font-size:13px;color:var(--muted)}
+form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;font-weight:650;margin-bottom:6px}.form-group input,.form-group textarea,.form-group select{width:100%;min-height:44px;border:1px solid #cfd8e6;border-radius:10px;padding:10px 12px;background:#fff;font:inherit}.form-group textarea{min-height:220px;resize:vertical}.btn{width:100%;min-height:46px;border:0;border-radius:11px;background:var(--primary);color:#fff;font-weight:750;padding:10px 14px}.btn.secondary{background:#eef4ff;color:var(--primary);margin-top:9px}
+.hint{font-size:13px;color:var(--muted);margin:0 0 12px}.empty{color:var(--muted);text-align:center;padding:28px 10px}
+.subnav{display:flex;gap:8px;overflow:auto;margin:-2px 0 14px;padding-bottom:2px}.subnav a{white-space:nowrap;background:#eef2f7;padding:8px 11px;border-radius:10px;color:#52627a}.subnav a.active{background:#dbeafe;color:#1d4ed8}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:99;box-shadow:var(--shadow)}
+@media(max-width:760px){.shell{padding:14px 12px 86px}.stats{grid-template-columns:repeat(2,1fr)}.stats .stat:first-child{grid-column:span 2}.mainnav{position:fixed;z-index:50;left:10px;right:10px;bottom:10px;margin:0;box-shadow:0 10px 30px rgba(15,23,42,.18)}.settings-grid{grid-template-columns:1fr}.card{padding:15px}.brand h1{font-size:20px}}
+@media(min-width:900px){.monitor-list{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
-    <div class="container">
-        <h1>DouyinLiveRecorder <span>配置中心</span></h1>
-        <div class="tabs">
-                <a href="{{ url_for('home_page') }}" class="tab-button {% if active_tab == 'home' %}active{% endif %}">首页</a>
-                <a href="{{ url_for('url_config_page') }}" class="tab-button {% if active_tab == 'url_config' %}active{% endif %}">URL 配置</a>
-                <a href="{{ url_for('recording_settings_page') }}" class="tab-button {% if active_tab == 'recording_settings' %}active{% endif %}">录制设置</a>
-                <a href="{{ url_for('push_settings_page') }}" class="tab-button {% if active_tab == 'push_settings' %}active{% endif %}">推送配置</a>
-                <a href="{{ url_for('cookie_settings_page') }}" class="tab-button {% if active_tab == 'cookie_settings' %}active{% endif %}">Cookie</a>
-                <a href="{{ url_for('account_settings_page') }}" class="tab-button {% if active_tab == 'account_settings' %}active{% endif %}">账号密码</a>
-      <a href="{{ url_for('xiaolan_webdav_page') }}"
-         class="tab-button {% if active_tab == 'xiaolan_webdav' %}active{% endif %}">
-          小蓝网盘
-      </a>
-            </div>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><h1>DouyinLiveRecorder</h1><p>直播监控控制台</p></div>
+    <div id="service" class="service">正在读取状态…</div>
+  </header>
 
-            {% if active_tab == 'home' %}
-            <div class="config-section">
-                <h2>首页</h2>
-                <h3>日志输出:</h3>
-                <pre id="log_output" style="background-color: #eee; padding: 10px; border-radius: 5px; max-height: 400px; overflow-y: scroll;"></pre>
-            </div>
-            {% elif active_tab == 'url_config' %}
-            <div class="config-section">
-                <form action="{{ url_for('url_config_page') }}" method="post">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>URL Configuration (URL_config.ini)</h2>
-                        <button type="submit" style="margin: 0; width: auto; padding: 8px 15px;">保存 URL 配置</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="url_config_content">编辑 URL (每行一个):</label>
-                        <textarea id="url_config_content" name="url_config_content" rows="15">{{ url_config_content }}</textarea>
-                    </div>
-                </form>
-            </div>
-            {% elif active_tab == 'recording_settings' %}
-            <div class="config-section">
-                <form action="{{ url_for('recording_settings_page') }}" method="post">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>录制设置 (config.ini - [Recording])</h2>
-                        <button type="submit" style="margin: 0; width: auto; padding: 8px 15px;">保存录制设置</button>
-                    </div>
-                    {% for key, value in config.items(section) %}
-                    <div class="form-group">
-                        <label for="{{ key }}">{{ key }}:</label>
-                        {% if key in ['是否跳过代理检测(是/否)', '保存文件夹是否以作者区分', '保存文件夹是否以时间区分', '保存文件夹是否以标题区分', '保存文件名是否包含标题', '是否去除名称中的表情符号', '是否使用代理ip(是/否)', '是否显示循环秒数', '是否显示直播源地址', '分段录制是否开启', '是否强制启用https录制', '录制完成后自动转为mp4格式', 'mp4格式重新编码为h264', '追加格式后删除原文件', '生成时间字幕文件', '是否录制完成后执行自定义脚本'] %}
-                        <select id="{{ key }}" name="{{ key }}" style="height: 38px; width: 200px;">
-                              <option value="是" {% if value == '是' %}selected{% endif %}>是</option>
-                              <option value="否" {% if value == '否' %}selected{% endif %}>否</option>
-                          </select>
-                        {% else %}
-                        <input type="text" id="{{ key }}" name="{{ key }}" value="{{ value }}">
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </form>
-            </div>
-            {% elif active_tab == 'push_settings' %}
-            <div class="config-section">
-                <form action="{{ url_for('push_settings_page') }}" method="post">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>推送配置 (config.ini - [Push])</h2>
-                        <button type="submit" style="margin: 0; width: auto; padding: 8px 15px;">保存推送配置</button>
-                    </div>
-                    {% for key, value in config.items(section) %}
-                    <div class="form-group">
-                        <label for="{{ key }}">{{ key }}:</label>
-                        {% if key == '直播状态推送渠道' %}
-                        <select id="{{ key }}" name="{{ key }}" style="height: 38px; width: 200px;">
-                            <option value="">请选择</option>
-                            <option value="OneBot" {% if value == 'OneBot' %}selected{% endif %}>OneBot</option>
-                            <option value="钉钉" {% if value == '钉钉' %}selected{% endif %}>钉钉</option>
-                            <option value="微信" {% if value == '微信' %}selected{% endif %}>微信</option>
-                            <option value="Bark" {% if value == 'Bark' %}selected{% endif %}>Bark</option>
-                            <option value="Gotify" {% if value == 'Gotify' %}selected{% endif %}>Gotify</option>
-                            <option value="TG" {% if value == 'TG' %}selected{% endif %}>TG</option>
-                            <option value="ntfy" {% if value == 'ntfy' %}selected{% endif %}>ntfy</option>
-                            <option value="邮箱" {% if value == '邮箱' %}selected{% endif %}>邮箱</option>
-                        </select>
-                        {% elif key in ['是否跳过代理检测(是/否)', '保存文件夹是否以作者区分', '保存文件夹是否以时间区分', '保存文件夹是否以标题区分', '保存文件名是否包含标题', '是否去除名称中的表情符号', '是否使用代理ip(是/否)', '是否显示循环秒数', '是否显示直播源地址', '分段录制是否开启', '是否强制启用https录制', '录制完成后自动转为mp4格式', 'mp4格式重新编码为h264', '追加格式后删除原文件', '生成时间字幕文件', '是否录制完成后执行自定义脚本'] %}
-                        <select id="{{ key }}" name="{{ key }}" style="height: 38px; width: 200px;">
-                              <option value="是" {% if value == '是' %}selected{% endif %}>是</option>
-                              <option value="否" {% if value == '否' %}selected{% endif %}>否</option>
-                          </select>
-                        {% else %}
-                        <input type="text" id="{{ key }}" name="{{ key }}" value="{{ value }}">
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </form>
-            </div>
-            {% elif active_tab == 'cookie_settings' %}
-            <div class="config-section">
-                <form action="{{ url_for('cookie_settings_page') }}" method="post">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>Cookie (config.ini - [Cookie])</h2>
-                        <button type="submit" style="margin: 0; width: auto; padding: 8px 15px;">保存 Cookie</button>
-                    </div>
-                    {% for key, value in config.items(section) %}
-                    <div class="form-group">
-                        <label for="{{ key }}">{{ key }}:</label>
-                        {% if key in ['是否跳过代理检测(是/否)', '保存文件夹是否以作者区分', '保存文件夹是否以时间区分', '保存文件夹是否以标题区分', '保存文件名是否包含标题', '是否去除名称中的表情符号', '是否使用代理ip(是/否)', '是否显示循环秒数', '是否显示直播源地址', '分段录制是否开启', '是否强制启用https录制', '录制完成后自动转为mp4格式', 'mp4格式重新编码为h264', '追加格式后删除原文件', '生成时间字幕文件', '是否录制完成后执行自定义脚本'] %}
-                        <select id="{{ key }}" name="{{ key }}" style="height: 38px; width: 200px;">
-                              <option value="是" {% if value == '是' %}selected{% endif %}>是</option>
-                              <option value="否" {% if value == '否' %}selected{% endif %}>否</option>
-                          </select>
-                        {% else %}
-                        <input type="text" id="{{ key }}" name="{{ key }}" value="{{ value }}">
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </form>
-            </div>
-            {% elif active_tab == 'account_settings' %}
-            <div class="config-section">
-                <form action="{{ url_for('account_settings_page') }}" method="post">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2>账号密码 (config.ini - [Account])</h2>
-                        <button type="submit" style="margin: 0; width: auto; padding: 8px 15px;">保存账号密码</button>
-                    </div>
-                    {% for key, value in config.items(section) %}
-                    <div class="form-group">
-                        <label for="{{ key }}">{{ key }}:</label>
-                        {% if key in ['是否跳过代理检测(是/否)', '保存文件夹是否以作者区分', '保存文件夹是否以时间区分', '保存文件夹是否以标题区分', '保存文件名是否包含标题', '是否去除名称中的表情符号', '是否使用代理ip(是/否)', '是否显示循环秒数', '是否显示直播源地址', '分段录制是否开启', '是否强制启用https录制', '录制完成后自动转为mp4格式', 'mp4格式重新编码为h264', '追加格式后删除原文件', '生成时间字幕文件', '是否录制完成后执行自定义脚本'] %}
-                        <select id="{{ key }}" name="{{ key }}" style="height: 38px; width: 200px;">
-                              <option value="是" {% if value == '是' %}selected{% endif %}>是</option>
-                              <option value="否" {% if value == '否' %}selected{% endif %}>否</option>
-                          </select>
-                        {% else %}
-                        <input type="text" id="{{ key }}" name="{{ key }}" value="{{ value }}">
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </form>
-            </div>
+  <nav class="mainnav">
+    <a href="{{ url_for('home_page') }}" class="{{ 'active' if active_tab=='home' else '' }}">首页</a>
+    <a href="{{ url_for('url_config_page') }}" class="{{ 'active' if active_tab=='url_config' else '' }}">主播</a>
+    <a href="{{ url_for('recording_settings_page') }}" class="{{ 'active' if active_tab=='recording_settings' else '' }}">录制</a>
+    <a href="{{ url_for('settings_page') }}" class="{{ 'active' if active_tab in ['settings','push_settings','cookie_settings','account_settings','xiaolan_webdav'] else '' }}">设置</a>
+  </nav>
 
-  <!-- XIAOLAN_START -->
-  {% elif active_tab == 'xiaolan_webdav' %}
-  <div class="config-section">
-      <h2>小蓝网盘 WebDAV</h2>
-
-      <p style="color:#666;line-height:1.7;">
-          录像转换为 MP4 后上传。
-          每个主播可以自动建立独立文件夹。
-          上传成功并通过远端校验后，
-          才会根据设置删除本地录像。
-      </p>
-
-      <form
-          action="{{ url_for('xiaolan_webdav_page') }}"
-          method="post"
-      >
-          <div class="form-group">
-              <label>WebDAV 地址</label>
-              <input
-                  type="text"
-                  name="WebDAV地址"
-                  value="{{ config.get(section, 'WebDAV地址', fallback='') }}"
-              >
-          </div>
-
-          <div class="form-group">
-              <label>WebDAV 用户名</label>
-              <input
-                  type="text"
-                  name="WebDAV用户名"
-                  value="{{ config.get(section, 'WebDAV用户名', fallback='') }}"
-              >
-          </div>
-
-          <div class="form-group">
-              <label>WebDAV 密码</label>
-              <input
-                  type="password"
-                  name="WebDAV密码"
-                  value="{{ config.get(section, 'WebDAV密码', fallback='') }}"
-                  style="width:calc(100% - 22px);padding:10px;box-sizing:border-box;"
-              >
-          </div>
-
-          <div class="form-group">
-              <label>上传根目录</label>
-              <input
-                  type="text"
-                  name="上传根目录"
-                  value="{{ config.get(section, '上传根目录', fallback='/直播录像/') }}"
-              >
-          </div>
-
-          {% set au = config.get(section, '自动上传录像', fallback='否') %}
-          <div class="form-group">
-              <label>自动上传录像</label>
-              <select name="自动上传录像">
-                  <option value="是" {% if au == '是' %}selected{% endif %}>是</option>
-                  <option value="否" {% if au != '是' %}selected{% endif %}>否</option>
-              </select>
-          </div>
-
-          {% set ba = config.get(section, '按主播创建文件夹', fallback='是') %}
-          <div class="form-group">
-              <label>按主播创建文件夹</label>
-              <select name="按主播创建文件夹">
-                  <option value="是" {% if ba == '是' %}selected{% endif %}>是</option>
-                  <option value="否" {% if ba != '是' %}selected{% endif %}>否</option>
-              </select>
-          </div>
-
-          {% set bd = config.get(section, '按日期创建文件夹', fallback='否') %}
-          <div class="form-group">
-              <label>按日期创建文件夹</label>
-              <select name="按日期创建文件夹">
-                  <option value="是" {% if bd == '是' %}selected{% endif %}>是</option>
-                  <option value="否" {% if bd != '是' %}selected{% endif %}>否</option>
-              </select>
-          </div>
-
-          {% set dl = config.get(section, '上传成功后删除本地', fallback='否') %}
-          <div class="form-group">
-              <label>上传成功后删除本地</label>
-              <select name="上传成功后删除本地">
-                  <option value="是" {% if dl == '是' %}selected{% endif %}>是</option>
-                  <option value="否" {% if dl != '是' %}selected{% endif %}>否</option>
-              </select>
-          </div>
-
-          <div class="form-group">
-              <label>上传失败重试次数</label>
-              <input
-                  type="text"
-                  name="上传失败重试次数"
-                  value="{{ config.get(section, '上传失败重试次数', fallback='3') }}"
-              >
-          </div>
-
-          <div class="form-group">
-              <label>等待 MP4 最长时间（秒）</label>
-              <input
-                  type="text"
-                  name="等待MP4最长时间(秒)"
-                  value="{{ config.get(section, '等待MP4最长时间(秒)', fallback='1800') }}"
-              >
-          </div>
-
-          <button type="submit">
-              保存小蓝网盘设置
-          </button>
-      </form>
-
-      <button
-          type="button"
-          id="xiaolan-test-btn"
-          style="width:100%;margin-top:12px;padding:12px;"
-      >
-          测试 WebDAV 连接
-      </button>
-
-      <div
-          id="xiaolan-test-result"
-          style="display:none;margin-top:12px;padding:12px;"
-      ></div>
+  {% if active_tab == 'home' %}
+  <div class="stats">
+    <div class="stat"><b id="s-total">0</b><span>监控总数</span></div>
+    <div class="stat"><b id="s-waiting">0</b><span>等待直播</span></div>
+    <div class="stat"><b id="s-live">0</b><span>直播中</span></div>
+    <div class="stat"><b id="s-recording">0</b><span>正在录制</span></div>
+    <div class="stat"><b id="s-error">0</b><span>异常</span></div>
   </div>
-  <!-- XIAOLAN_END -->
 
-            {% endif %}
+  <section class="card">
+    <div class="section-head"><h2>主播监控</h2><button class="refresh" onclick="loadStatus()">刷新</button></div>
+    <div id="monitor-list" class="monitor-list"><div class="empty">正在加载主播状态…</div></div>
+  </section>
+
+  <section class="card"><h2>最近事件</h2><div id="events" class="events"><div class="empty">暂无事件</div></div></section>
+
+  {% elif active_tab == 'url_config' %}
+  <section class="card">
+    <h2>主播与直播地址</h2>
+    <p class="hint">每行一个地址。当前核心已支持抖音直播间链接、分享短链，以及可被 streamget 解析的主播主页链接。保存后主程序会继续循环监测。</p>
+    <form method="post">
+      <div class="form-group"><textarea name="url_config_content" placeholder="每行一个直播地址">{{ url_config_content }}</textarea></div>
+      <button class="btn" type="submit">保存主播列表</button>
+    </form>
+  </section>
+
+  {% elif active_tab == 'settings' %}
+  <section class="card">
+    <h2>设置</h2>
+    <div class="settings-grid">
+      <a href="{{ url_for('push_settings_page') }}"><b>推送设置</b><span>开播、关播与通知渠道</span></a>
+      <a href="{{ url_for('cookie_settings_page') }}"><b>Cookie</b><span>各平台登录 Cookie</span></a>
+      <a href="{{ url_for('account_settings_page') }}"><b>账号密码</b><span>平台账号相关配置</span></a>
+      <a href="{{ url_for('xiaolan_webdav_page') }}"><b>小蓝网盘</b><span>WebDAV 自动上传配置</span></a>
     </div>
-    <script>
-        let lastLogContent = '';
-        function fetchLog() {
-            fetch('/log')
-                .then(response => response.text())
-                .then(data => {
-                    const logOutput = document.getElementById('log_output');
-                    if (data !== lastLogContent) {
-                        logOutput.innerText = data;
-                        logOutput.scrollTop = logOutput.scrollHeight;
-                        lastLogContent = data;
-                    }
-                })
-                .catch(error => console.error('Error fetching log:', error));
-        }
+  </section>
 
-        // Fetch log every 5 seconds
-        setInterval(fetchLog, 5000);
+  {% else %}
+  <div class="subnav">
+    <a href="{{ url_for('recording_settings_page') }}" class="{{ 'active' if active_tab=='recording_settings' else '' }}">录制设置</a>
+    <a href="{{ url_for('push_settings_page') }}" class="{{ 'active' if active_tab=='push_settings' else '' }}">推送</a>
+    <a href="{{ url_for('cookie_settings_page') }}" class="{{ 'active' if active_tab=='cookie_settings' else '' }}">Cookie</a>
+    <a href="{{ url_for('account_settings_page') }}" class="{{ 'active' if active_tab=='account_settings' else '' }}">账号密码</a>
+    <a href="{{ url_for('xiaolan_webdav_page') }}" class="{{ 'active' if active_tab=='xiaolan_webdav' else '' }}">小蓝网盘</a>
+  </div>
+  <section class="card">
+    <h2>{{ section }}</h2>
+    {% if active_tab == 'xiaolan_webdav' %}<p class="hint">录像转为 MP4 后可上传；建议先测试连接，再开启自动上传。</p>{% endif %}
+    <form method="post">
+      {% for key, value in config.items(section) %}
+      <div class="form-group">
+        <label>{{ key }}</label>
+        {% if value in ['是','否'] %}
+          <select name="{{ key }}"><option value="是" {{ 'selected' if value=='是' else '' }}>是</option><option value="否" {{ 'selected' if value=='否' else '' }}>否</option></select>
+        {% elif '密码' in key or 'token' in key.lower() or '令牌' in key %}
+          <input type="password" name="{{ key }}" value="{{ value }}">
+        {% else %}
+          <input type="text" name="{{ key }}" value="{{ value }}">
+        {% endif %}
+      </div>
+      {% endfor %}
+      <button class="btn" type="submit">保存设置</button>
+    </form>
+    {% if active_tab == 'xiaolan_webdav' %}
+      <button class="btn secondary" id="webdav-test" type="button">测试 WebDAV 连接</button>
+      <div id="webdav-result" class="hint"></div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
 
-        // Initial fetch
-        fetchLog();
-
-        // 为所有按钮添加点击反馈效果
-        document.addEventListener('DOMContentLoaded', function() {
-            // 获取所有表单
-            const forms = document.querySelectorAll('form');
-
-            forms.forEach(form => {
-                form.addEventListener('submit', function(event) {
-                    // 获取表单中的按钮
-                    const button = this.querySelector('button[type="submit"]');
-                    if (button) {
-                        // 保存原始文本
-                        const originalText = button.textContent;
-                        // 更改按钮文本和样式
-                        button.textContent = '处理中...';
-                        button.style.opacity = '0.7';
-                        button.style.pointerEvents = 'none';
-
-                        // 添加一个隐藏的输入字段，用于在后端处理完成后识别
-                        const hiddenInput = document.createElement('input');
-                        hiddenInput.type = 'hidden';
-                        hiddenInput.name = 'button_clicked';
-                        hiddenInput.value = 'true';
-                        this.appendChild(hiddenInput);
-
-                        // 设置超时，如果服务器没有响应，恢复按钮状态
-                        setTimeout(function() {
-                            if (button) {
-                                button.textContent = originalText;
-                                button.style.opacity = '1';
-                                button.style.pointerEvents = 'auto';
-                            }
-                        }, 5000); // 5秒后恢复
-                    }
-                });
-            });
-        });
-
-        // 检查URL参数，显示操作成功提示
-        window.onload = function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const success = urlParams.get('success');
-            if (success === 'true') {
-                // 创建提示元素
-                const notification = document.createElement('div');
-                notification.textContent = '操作成功！';
-                notification.style.position = 'fixed';
-                notification.style.top = '20px';
-                notification.style.left = '50%';
-                notification.style.transform = 'translateX(-50%)';
-                notification.style.backgroundColor = '#4CAF50';
-                notification.style.color = 'white';
-                notification.style.padding = '10px 20px';
-                notification.style.borderRadius = '5px';
-                notification.style.zIndex = '1000';
-                notification.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-
-                // 添加到页面
-                document.body.appendChild(notification);
-
-                // 3秒后移除
-                setTimeout(function() {
-                    notification.style.opacity = '0';
-                    notification.style.transition = 'opacity 0.5s';
-                    setTimeout(function() {
-                        document.body.removeChild(notification);
-                    }, 500);
-                }, 3000);
-
-                // 从URL中移除参数
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-        };
-    </script>
-
-<script id="xiaolan-test-js">
-document.addEventListener(
-    'DOMContentLoaded',
-    function () {
-        const button =
-            document.getElementById(
-                'xiaolan-test-btn'
-            );
-
-        const result =
-            document.getElementById(
-                'xiaolan-test-result'
-            );
-
-        if (!button || !result) {
-            return;
-        }
-
-        button.addEventListener(
-            'click',
-            async function () {
-                button.disabled = true;
-                button.textContent =
-                    '正在测试...';
-
-                result.style.display =
-                    'block';
-
-                result.textContent =
-                    '正在连接...';
-
-                try {
-                    const response =
-                        await fetch(
-                            '/xiaolan_webdav/test',
-                            {
-                                method: 'POST'
-                            }
-                        );
-
-                    const data =
-                        await response.json();
-
-                    result.textContent =
-                        data.message;
-
-                    if (
-                        response.ok
-                        && data.success
-                    ) {
-                        result.style.background =
-                            '#d4edda';
-                    } else {
-                        result.style.background =
-                            '#f8d7da';
-                    }
-
-                } catch (error) {
-                    result.textContent =
-                        '测试请求失败';
-
-                    result.style.background =
-                        '#f8d7da';
-
-                } finally {
-                    button.disabled = false;
-
-                    button.textContent =
-                        '测试 WebDAV 连接';
-                }
-            }
-        );
+<script>
+function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML}
+async function loadStatus(){
+  if(!document.getElementById('monitor-list')) return;
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});
+    const d=await r.json();
+    document.getElementById('service').textContent=(d.service_running?'● 录制服务运行中':'○ WebUI 已启动')+' · '+d.updated_at.slice(11);
+    for(const k of ['total','waiting','live','recording','error']){
+      const e=document.getElementById('s-'+k); if(e)e.textContent=d.counts[k]??0;
     }
-);
-</script>
+    const box=document.getElementById('monitor-list');
+    box.innerHTML=d.monitors.length?d.monitors.map(x=>`<div class="monitor"><div><div class="monitor-name">${esc(x.name)}</div><div class="meta">${esc(x.platform)} · ${esc(x.url)}</div><div class="meta">最近状态：${esc(x.updated_at)}</div></div><span class="badge ${esc(x.status)}">${esc(x.status_text)}</span></div>`).join(''):'<div class="empty">还没有添加主播，请到“主播”页面添加地址。</div>';
+    const ev=document.getElementById('events');
+    ev.innerHTML=d.events.length?d.events.map(x=>`<div class="event">${esc(x)}</div>`).join(''):'<div class="empty">暂无事件</div>';
+  }catch(e){document.getElementById('service').textContent='状态读取失败'}
+}
+loadStatus();setInterval(loadStatus,5000);
 
+const testBtn=document.getElementById('webdav-test');
+if(testBtn)testBtn.addEventListener('click',async()=>{
+  const result=document.getElementById('webdav-result');
+  testBtn.disabled=true;testBtn.textContent='正在测试…';result.textContent='';
+  try{
+    const r=await fetch('/xiaolan_webdav/test',{method:'POST'});
+    const d=await r.json();result.textContent=d.message||'测试完成';
+  }catch(e){result.textContent='测试请求失败'}
+  finally{testBtn.disabled=false;testBtn.textContent='测试 WebDAV 连接'}
+});
+
+const p=new URLSearchParams(location.search);
+if(p.get('success')==='true'){
+  const t=document.createElement('div');t.className='toast';t.textContent='保存成功';document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2200);history.replaceState({},'',location.pathname);
+}
+</script>
 </body>
 </html>

@@ -1,525 +1,296 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import configparser
 import os
+import re
 import subprocess
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
-
 from streamget.logger import logger
-
 
 app = Flask(__name__)
 
 CONFIG_FILE = "config/config.ini"
 URL_CONFIG_FILE = "config/URL_config.ini"
-
-
-def read_config(file_path):
-    config = configparser.ConfigParser(
-        interpolation=None
-    )
-
-    try:
-        with open(
-            file_path,
-            "r",
-            encoding="utf-8-sig"
-        ) as f:
-            content = f.read()
-
-        if not content.strip().startswith(
-            "["
-        ):
-            config.read_string(
-                "[DEFAULT]\n"
-                + content
-            )
-        else:
-            config.read(
-                file_path,
-                encoding="utf-8-sig"
-            )
-
-    except FileNotFoundError:
-        pass
-
-    return config
-
-
-def write_config(
-    config,
-    file_path
-):
-    with open(
-        file_path,
-        "w",
-        encoding="utf-8-sig"
-    ) as configfile:
-        config.write(
-            configfile
-        )
-
-
-@app.route("/")
-def index():
-    return redirect(
-        url_for(
-            "home_page"
-        )
-    )
-
-
-@app.route(
-    "/home",
-    methods=["GET"]
+LOG_FILES = (
+    "logs/streamget.log",
+    "logs/PlayURL.log",
 )
-def home_page():
-    return render_template(
-        "index.html",
-        active_tab="home"
-    )
-
 
 recording_process = None
 
 
+def read_config(file_path):
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            content = f.read()
+        if content.strip() and not content.strip().startswith("["):
+            config.read_string("[DEFAULT]\\n" + content)
+        else:
+            config.read(file_path, encoding="utf-8-sig")
+    except FileNotFoundError:
+        pass
+    return config
+
+
+def write_config(config, file_path):
+    with open(file_path, "w", encoding="utf-8-sig") as f:
+        config.write(f)
+
+
+def read_url_config():
+    try:
+        return Path(URL_CONFIG_FILE).read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return ""
+
+
+def read_log_lines(limit=300):
+    lines = []
+    for name in LOG_FILES:
+        path = Path(name)
+        if not path.exists():
+            continue
+        try:
+            part = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines.extend(part[-limit:])
+        except OSError:
+            continue
+    return lines[-limit:]
+
+
+def platform_from_url(url):
+    host = urlparse(url).netloc.lower()
+    if "douyin.com" in host:
+        return "抖音"
+    if "tiktok.com" in host:
+        return "TikTok"
+    if "kuaishou.com" in host:
+        return "快手"
+    if "huya.com" in host:
+        return "虎牙"
+    if "douyu.com" in host:
+        return "斗鱼"
+    if "bilibili.com" in host or "b23.tv" in host:
+        return "B站"
+    return "直播"
+
+
+def parse_monitor_lines():
+    items = []
+    for raw in read_url_config().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+
+        name_match = re.search(r"主播\s*[:：]\s*([^,，|]+)", line)
+        name = name_match.group(1).strip() if name_match else "等待获取主播名"
+
+        main_part = re.split(r"[,，]\s*主播\s*[:：]", line, maxsplit=1)[0].strip()
+        url = main_part.split("|", 1)[0].strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+
+        items.append({
+            "name": name,
+            "url": url,
+            "platform": platform_from_url(url),
+            "status": "waiting",
+            "status_text": "等待直播",
+            "updated_at": "--",
+        })
+    return items
+
+
+def classify_status(text):
+    lower = text.lower()
+    if any(k in text for k in ("正在录制", "开始录制", "录制中")):
+        return "recording", "正在录制"
+    if any(k in text for k in ("检测到", "开始直播", "已开播", "直播中")):
+        return "live", "直播中"
+    if any(k in text for k in ("等待直播", "未开播", "未直播")):
+        return "waiting", "等待直播"
+    if any(k in text for k in ("获取失败", "连接失败", "错误信息", "异常")) or "error" in lower:
+        return "error", "异常"
+    return None
+
+
+def get_monitor_snapshot():
+    items = parse_monitor_lines()
+    logs = read_log_lines(500)
+
+    for item in items:
+        keys = [item["name"], item["url"]]
+        for line in reversed(logs):
+            if not any(k and k != "等待获取主播名" and k in line for k in keys):
+                continue
+            state = classify_status(line)
+            if state:
+                item["status"], item["status_text"] = state
+                ts = re.search(r"(20\\d\\d[-/]\\d\\d[-/]\\d\\d[ T]\\d\\d:\\d\\d:\\d\\d)", line)
+                if ts:
+                    item["updated_at"] = ts.group(1).replace("/", "-")
+                break
+
+    counts = {
+        "total": len(items),
+        "waiting": sum(i["status"] == "waiting" for i in items),
+        "live": sum(i["status"] == "live" for i in items),
+        "recording": sum(i["status"] == "recording" for i in items),
+        "error": sum(i["status"] == "error" for i in items),
+    }
+
+    event_words = ("直播", "录制", "推送", "上传", "失败", "异常", "WebUI")
+    events = [x for x in logs if any(k in x for k in event_words)][-8:]
+    events.reverse()
+
+    return {
+        "service_running": recording_process is not None and recording_process.poll() is None,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "counts": counts,
+        "monitors": items,
+        "events": events,
+    }
+
+
+@app.route("/")
+def index():
+    return redirect(url_for("home_page"))
+
+
+@app.route("/home")
+def home_page():
+    return render_template("index.html", active_tab="home")
+
+
+@app.route("/settings")
+def settings_page():
+    return render_template("index.html", active_tab="settings")
+
+
+@app.route("/api/status")
+def api_status():
+    return jsonify(get_monitor_snapshot())
+
+
 def start_main_recording():
     global recording_process
-
-    if (
-        recording_process is None
-        or recording_process.poll()
-        is not None
-    ):
+    if recording_process is None or recording_process.poll() is not None:
         try:
-            logger.info(
-                "WebUI启动时自动开始录制..."
-            )
-
-            recording_process = (
-                subprocess.Popen(
-                    [
-                        "python",
-                        "main.py",
-                    ],
-                    cwd=os.getcwd()
-                )
-            )
-
+            logger.info("WebUI启动时自动开始录制...")
+            recording_process = subprocess.Popen(["python", "main.py"], cwd=os.getcwd())
         except Exception as exc:
-            logger.error(
-                f"自动启动录制失败: {exc}"
-            )
+            logger.error(f"自动启动录制失败: {exc}")
 
 
 def run_with_auto_record():
     start_main_recording()
-
-    app.run(
-        host="0.0.0.0",
-        port=5000
-    )
+    app.run(host="0.0.0.0", port=5000)
 
 
-@app.route(
-    "/url_config",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/url_config", methods=["GET", "POST"])
 def url_config_page():
-    path = os.path.join(
-        os.getcwd(),
-        "config",
-        "URL_config.ini"
-    )
-
+    path = Path(URL_CONFIG_FILE)
     if request.method == "POST":
-        content = request.form[
-            "url_config_content"
-        ]
-
-        with open(
-            path,
-            "w",
-            encoding="utf-8-sig"
-        ) as f:
-            f.write(
-                content
-            )
-
-        return redirect(
-            url_for(
-                "url_config_page",
-                success="true"
-            )
-        )
-
-    try:
-        with open(
-            path,
-            "r",
-            encoding="utf-8-sig"
-        ) as f:
-            content = f.read()
-
-    except FileNotFoundError:
-        content = ""
-
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(request.form.get("url_config_content", ""), encoding="utf-8-sig")
+        return redirect(url_for("url_config_page", success="true"))
     return render_template(
         "index.html",
-        url_config_content=content,
-        active_tab="url_config"
+        active_tab="url_config",
+        url_config_content=read_url_config(),
     )
 
 
-def config_page(
-    section,
-    endpoint,
-    active_tab
-):
-    path = os.path.join(
-        os.getcwd(),
-        "config",
-        "config.ini"
-    )
-
+def config_page(section, endpoint, active_tab):
+    config = read_config(CONFIG_FILE)
     if request.method == "POST":
-        config = read_config(
-            path
-        )
-
-        for key, value in (
-            request.form.items()
-        ):
-            if (
-                section in config
-                and key
-                in config[section]
-            ):
-                config.set(
-                    section,
-                    key,
-                    value
-                )
-
-        write_config(
-            config,
-            path
-        )
-
-        return redirect(
-            url_for(
-                endpoint,
-                success="true"
-            )
-        )
-
-    config = read_config(
-        path
-    )
-
+        if section not in config:
+            config.add_section(section)
+        for key, value in request.form.items():
+            if key == "button_clicked":
+                continue
+            config.set(section, key, value)
+        write_config(config, CONFIG_FILE)
+        return redirect(url_for(endpoint, success="true"))
     return render_template(
         "index.html",
         config=config,
         active_tab=active_tab,
-        section=section
+        section=section,
     )
 
 
-@app.route(
-    "/recording_settings",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/recording_settings", methods=["GET", "POST"])
 def recording_settings_page():
-    return config_page(
-        "录制设置",
-        "recording_settings_page",
-        "recording_settings"
-    )
+    return config_page("录制设置", "recording_settings_page", "recording_settings")
 
 
-@app.route(
-    "/push_settings",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/push_settings", methods=["GET", "POST"])
 def push_settings_page():
-    return config_page(
-        "推送配置",
-        "push_settings_page",
-        "push_settings"
-    )
+    return config_page("推送配置", "push_settings_page", "push_settings")
 
 
-@app.route(
-    "/cookie_settings",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/cookie_settings", methods=["GET", "POST"])
 def cookie_settings_page():
-    return config_page(
-        "Cookie",
-        "cookie_settings_page",
-        "cookie_settings"
-    )
+    return config_page("Cookie", "cookie_settings_page", "cookie_settings")
 
 
-@app.route(
-    "/account_settings",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/account_settings", methods=["GET", "POST"])
 def account_settings_page():
-    return config_page(
-        "账号密码",
-        "account_settings_page",
-        "account_settings"
-    )
+    return config_page("账号密码", "account_settings_page", "account_settings")
 
 
-@app.route(
-    "/xiaolan_webdav",
-    methods=[
-        "GET",
-        "POST",
-    ]
-)
+@app.route("/xiaolan_webdav", methods=["GET", "POST"])
 def xiaolan_webdav_page():
-    path = os.path.join(
-        os.getcwd(),
-        "config",
-        "config.ini"
-    )
-
-    config = read_config(
-        path
-    )
-
-    if "小蓝网盘" not in config:
-        config.add_section(
-            "小蓝网盘"
-        )
-
-    if request.method == "POST":
-        keys = [
-            "WebDAV地址",
-            "WebDAV用户名",
-            "WebDAV密码",
-            "上传根目录",
-            "自动上传录像",
-            "按主播创建文件夹",
-            "按日期创建文件夹",
-            "上传成功后删除本地",
-            "上传失败重试次数",
-            "等待MP4最长时间(秒)",
-        ]
-
-        for key in keys:
-            if key in request.form:
-                config.set(
-                    "小蓝网盘",
-                    key,
-                    request.form.get(
-                        key,
-                        ""
-                    ).strip()
-                )
-
-        write_config(
-            config,
-            path
-        )
-
-        return redirect(
-            url_for(
-                "xiaolan_webdav_page",
-                success="true"
-            )
-        )
-
-    return render_template(
-        "index.html",
-        config=config,
-        active_tab="xiaolan_webdav",
-        section="小蓝网盘"
-    )
+    return config_page("小蓝网盘", "xiaolan_webdav_page", "xiaolan_webdav")
 
 
-@app.route(
-    "/xiaolan_webdav/test",
-    methods=["POST"]
-)
+@app.route("/xiaolan_webdav/test", methods=["POST"])
 def test_xiaolan_webdav():
-    path = os.path.join(
-        os.getcwd(),
-        "config",
-        "config.ini"
-    )
-
-    config = read_config(
-        path
-    )
-
+    config = read_config(CONFIG_FILE)
     if "小蓝网盘" not in config:
-        return {
-            "success": False,
-            "message":
-                "请先保存 WebDAV 配置",
-        }, 400
+        return jsonify(success=False, message="请先保存 WebDAV 配置"), 400
 
-    url = config.get(
-        "小蓝网盘",
-        "WebDAV地址",
-        fallback=""
-    ).strip()
+    url = config.get("小蓝网盘", "WebDAV地址", fallback="").strip()
+    username = config.get("小蓝网盘", "WebDAV用户名", fallback="").strip()
+    password = config.get("小蓝网盘", "WebDAV密码", fallback="")
 
-    username = config.get(
-        "小蓝网盘",
-        "WebDAV用户名",
-        fallback=""
-    ).strip()
-
-    password = config.get(
-        "小蓝网盘",
-        "WebDAV密码",
-        fallback=""
-    )
-
-    if not url.startswith(
-        (
-            "http://",
-            "https://",
-        )
-    ):
-        return {
-            "success": False,
-            "message":
-                "WebDAV 地址为空或格式错误",
-        }, 400
+    if not url.startswith(("http://", "https://")):
+        return jsonify(success=False, message="WebDAV 地址为空或格式错误"), 400
 
     try:
         response = requests.request(
             "PROPFIND",
             url,
-            auth=(
-                username,
-                password
-            ),
-            headers={
-                "Depth": "0",
-                "User-Agent":
-                    "DouyinLiveRecorder-WebDAV",
-            },
+            auth=(username, password),
+            headers={"Depth": "0", "User-Agent": "DouyinLiveRecorder-WebDAV"},
             timeout=15,
-            allow_redirects=True
+            allow_redirects=True,
         )
-
-        if response.status_code in (
-            200,
-            201,
-            204,
-            207,
-        ):
-            return {
-                "success": True,
-                "message":
-                    "小蓝网盘 WebDAV 连接成功",
-            }
+        if response.status_code in (200, 201, 204, 207):
+            return jsonify(success=True, message="小蓝网盘 WebDAV 连接成功")
 
         messages = {
-            401:
-                "认证失败，请检查用户名和密码",
-            403:
-                "访问被拒绝，请检查权限",
-            404:
-                "WebDAV 地址不存在",
+            401: "认证失败，请检查用户名和密码",
+            403: "访问被拒绝，请检查权限",
+            404: "WebDAV 地址不存在",
         }
-
-        return {
-            "success": False,
-            "message": messages.get(
-                response.status_code,
-                "连接失败 HTTP "
-                + str(
-                    response.status_code
-                )
-            ),
-        }, 400
-
+        message = messages.get(response.status_code, f"连接失败 HTTP {response.status_code}")
+        return jsonify(success=False, message=message), 400
     except requests.exceptions.Timeout:
-        return {
-            "success": False,
-            "message":
-                "连接超时",
-        }, 400
-
+        return jsonify(success=False, message="连接超时"), 400
     except requests.exceptions.RequestException as exc:
-        logger.error(
-            f"WebDAV连接失败: {exc}"
-        )
-
-        return {
-            "success": False,
-            "message":
-                "无法连接 WebDAV 服务器",
-        }, 400
+        logger.error(f"WebDAV连接失败: {exc}")
+        return jsonify(success=False, message="无法连接 WebDAV 服务器"), 400
 
 
 @app.route("/log")
 def get_log():
-    result = []
-
-    files = [
-        os.path.join(
-            os.getcwd(),
-            "logs",
-            "streamget.log"
-        ),
-        os.path.join(
-            os.getcwd(),
-            "logs",
-            "PlayURL.log"
-        ),
-    ]
-
-    for file in files:
-        if not os.path.exists(
-            file
-        ):
-            continue
-
-        try:
-            with open(
-                file,
-                "r",
-                encoding="utf-8"
-            ) as f:
-                lines = f.readlines()
-
-            result.extend(
-                lines[-100:]
-            )
-
-        except Exception as exc:
-            result.append(
-                f"Error reading {file}: "
-                f"{exc}\n"
-            )
-
-    return "".join(
-        result
-    )
+    return "\\n".join(read_log_lines(100))
 
 
 if __name__ == "__main__":
