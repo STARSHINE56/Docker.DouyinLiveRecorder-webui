@@ -1,4 +1,4 @@
-name: Xiaolan WebDAV Auto Upload V3.2
+name: Xiaolan WebDAV Auto Upload V3.3
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: xiaolan-webdav-auto-upload-v32
+  group: xiaolan-webdav-auto-upload-v33
   cancel-in-progress: false
 
 jobs:
   patch:
-    name: Xiaolan WebDAV Auto Upload V3.2
+    name: Xiaolan WebDAV Auto Upload V3.3
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -939,6 +939,7 @@ jobs:
 
           def config_page(
               section,
+              endpoint,
               active_tab
           ):
               path = os.path.join(
@@ -973,8 +974,7 @@ jobs:
 
                   return redirect(
                       url_for(
-                          active_tab
-                          + "_page",
+                          endpoint,
                           success="true"
                       )
                   )
@@ -1001,6 +1001,7 @@ jobs:
           def recording_settings_page():
               return config_page(
                   "录制设置",
+                  "recording_settings_page",
                   "recording_settings"
               )
 
@@ -1015,6 +1016,7 @@ jobs:
           def push_settings_page():
               return config_page(
                   "推送配置",
+                  "push_settings_page",
                   "push_settings"
               )
 
@@ -1029,6 +1031,7 @@ jobs:
           def cookie_settings_page():
               return config_page(
                   "Cookie",
+                  "cookie_settings_page",
                   "cookie_settings"
               )
 
@@ -1043,6 +1046,7 @@ jobs:
           def account_settings_page():
               return config_page(
                   "账号密码",
+                  "account_settings_page",
                   "account_settings"
               )
 
@@ -1609,34 +1613,55 @@ jobs:
           PY
 
       - name: Clean whitespace
+        shell: bash
         run: |
           python <<'PY'
           from pathlib import Path
 
-          for name in [
-              "webui.py",
-              "upload_after_record.py",
-              "templates/index.html",
-          ]:
-              path = Path(name)
+          files = [
+              (
+                  Path("webui.py"),
+                  "utf-8",
+              ),
+              (
+                  Path("upload_after_record.py"),
+                  "utf-8",
+              ),
+              (
+                  Path("templates/index.html"),
+                  "utf-8",
+              ),
+              (
+                  Path("config/config.ini"),
+                  "utf-8-sig",
+              ),
+          ]
 
+          for path, encoding in files:
               text = path.read_text(
-                  encoding="utf-8"
+                  encoding=encoding
               )
+
+              lines = [
+                  line.rstrip()
+                  for line in text.splitlines()
+              ]
+
+              while (
+                  lines
+                  and not lines[-1].strip()
+              ):
+                  lines.pop()
 
               path.write_text(
-                  "\n".join(
-                      line.rstrip()
-                      for line
-                      in text.splitlines()
-                  )
+                  "\n".join(lines)
                   + "\n",
-                  encoding="utf-8"
+                  encoding=encoding
               )
 
-          print(
-              "OK: whitespace"
-          )
+              print(
+                  f"OK: cleaned {path}"
+              )
           PY
 
       - name: Check diff
@@ -1824,13 +1849,15 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "## ✅ Xiaolan WebDAV V3.2"
+            echo "## ✅ Xiaolan WebDAV V3.3"
             echo
-            echo "- 修复 webui.py 缩进错误"
+            echo "- 修复 config.ini trailing whitespace"
+            echo "- 修复文件末尾多余空行"
+            echo "- 修复 webui.py 缩进问题"
             echo "- WebDAV 配置与测试"
             echo "- MP4 自动上传"
             echo "- 每个主播独立文件夹"
-            echo "- 可选日期目录"
+            echo "- 可选按日期目录"
             echo "- 上传失败重试"
             echo "- 上传成功远端校验"
             echo "- 成功后可自动删除本地 MP4"
