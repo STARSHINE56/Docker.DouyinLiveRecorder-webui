@@ -122,6 +122,10 @@
                 <a href="{{ url_for('push_settings_page') }}" class="tab-button {% if active_tab == 'push_settings' %}active{% endif %}">推送配置</a>
                 <a href="{{ url_for('cookie_settings_page') }}" class="tab-button {% if active_tab == 'cookie_settings' %}active{% endif %}">Cookie</a>
                 <a href="{{ url_for('account_settings_page') }}" class="tab-button {% if active_tab == 'account_settings' %}active{% endif %}">账号密码</a>
+      <a href="{{ url_for('xiaolan_webdav_page') }}"
+         class="tab-button {% if active_tab == 'xiaolan_webdav' %}active{% endif %}">
+          小蓝网盘
+      </a>
             </div>
 
             {% if active_tab == 'home' %}
@@ -243,6 +247,134 @@
                     {% endfor %}
                 </form>
             </div>
+
+  <!-- XIAOLAN_START -->
+  {% elif active_tab == 'xiaolan_webdav' %}
+  <div class="config-section">
+      <h2>小蓝网盘 WebDAV</h2>
+
+      <p style="color:#666;line-height:1.7;">
+          录像转换为 MP4 后上传。
+          每个主播可以自动建立独立文件夹。
+          上传成功并通过远端校验后，
+          才会根据设置删除本地录像。
+      </p>
+
+      <form
+          action="{{ url_for('xiaolan_webdav_page') }}"
+          method="post"
+      >
+          <div class="form-group">
+              <label>WebDAV 地址</label>
+              <input
+                  type="text"
+                  name="WebDAV地址"
+                  value="{{ config.get(section, 'WebDAV地址', fallback='') }}"
+              >
+          </div>
+
+          <div class="form-group">
+              <label>WebDAV 用户名</label>
+              <input
+                  type="text"
+                  name="WebDAV用户名"
+                  value="{{ config.get(section, 'WebDAV用户名', fallback='') }}"
+              >
+          </div>
+
+          <div class="form-group">
+              <label>WebDAV 密码</label>
+              <input
+                  type="password"
+                  name="WebDAV密码"
+                  value="{{ config.get(section, 'WebDAV密码', fallback='') }}"
+                  style="width:calc(100% - 22px);padding:10px;box-sizing:border-box;"
+              >
+          </div>
+
+          <div class="form-group">
+              <label>上传根目录</label>
+              <input
+                  type="text"
+                  name="上传根目录"
+                  value="{{ config.get(section, '上传根目录', fallback='/直播录像/') }}"
+              >
+          </div>
+
+          {% set au = config.get(section, '自动上传录像', fallback='否') %}
+          <div class="form-group">
+              <label>自动上传录像</label>
+              <select name="自动上传录像">
+                  <option value="是" {% if au == '是' %}selected{% endif %}>是</option>
+                  <option value="否" {% if au != '是' %}selected{% endif %}>否</option>
+              </select>
+          </div>
+
+          {% set ba = config.get(section, '按主播创建文件夹', fallback='是') %}
+          <div class="form-group">
+              <label>按主播创建文件夹</label>
+              <select name="按主播创建文件夹">
+                  <option value="是" {% if ba == '是' %}selected{% endif %}>是</option>
+                  <option value="否" {% if ba != '是' %}selected{% endif %}>否</option>
+              </select>
+          </div>
+
+          {% set bd = config.get(section, '按日期创建文件夹', fallback='否') %}
+          <div class="form-group">
+              <label>按日期创建文件夹</label>
+              <select name="按日期创建文件夹">
+                  <option value="是" {% if bd == '是' %}selected{% endif %}>是</option>
+                  <option value="否" {% if bd != '是' %}selected{% endif %}>否</option>
+              </select>
+          </div>
+
+          {% set dl = config.get(section, '上传成功后删除本地', fallback='否') %}
+          <div class="form-group">
+              <label>上传成功后删除本地</label>
+              <select name="上传成功后删除本地">
+                  <option value="是" {% if dl == '是' %}selected{% endif %}>是</option>
+                  <option value="否" {% if dl != '是' %}selected{% endif %}>否</option>
+              </select>
+          </div>
+
+          <div class="form-group">
+              <label>上传失败重试次数</label>
+              <input
+                  type="text"
+                  name="上传失败重试次数"
+                  value="{{ config.get(section, '上传失败重试次数', fallback='3') }}"
+              >
+          </div>
+
+          <div class="form-group">
+              <label>等待 MP4 最长时间（秒）</label>
+              <input
+                  type="text"
+                  name="等待MP4最长时间(秒)"
+                  value="{{ config.get(section, '等待MP4最长时间(秒)', fallback='1800') }}"
+              >
+          </div>
+
+          <button type="submit">
+              保存小蓝网盘设置
+          </button>
+      </form>
+
+      <button
+          type="button"
+          id="xiaolan-test-btn"
+          style="width:100%;margin-top:12px;padding:12px;"
+      >
+          测试 WebDAV 连接
+      </button>
+
+      <div
+          id="xiaolan-test-result"
+          style="display:none;margin-top:12px;padding:12px;"
+      ></div>
+  </div>
+  <!-- XIAOLAN_END -->
+
             {% endif %}
     </div>
     <script>
@@ -271,7 +403,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // 获取所有表单
             const forms = document.querySelectorAll('form');
-            
+
             forms.forEach(form => {
                 form.addEventListener('submit', function(event) {
                     // 获取表单中的按钮
@@ -283,14 +415,14 @@
                         button.textContent = '处理中...';
                         button.style.opacity = '0.7';
                         button.style.pointerEvents = 'none';
-                        
+
                         // 添加一个隐藏的输入字段，用于在后端处理完成后识别
                         const hiddenInput = document.createElement('input');
                         hiddenInput.type = 'hidden';
                         hiddenInput.name = 'button_clicked';
                         hiddenInput.value = 'true';
                         this.appendChild(hiddenInput);
-                        
+
                         // 设置超时，如果服务器没有响应，恢复按钮状态
                         setTimeout(function() {
                             if (button) {
@@ -322,10 +454,10 @@
                 notification.style.borderRadius = '5px';
                 notification.style.zIndex = '1000';
                 notification.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-                
+
                 // 添加到页面
                 document.body.appendChild(notification);
-                
+
                 // 3秒后移除
                 setTimeout(function() {
                     notification.style.opacity = '0';
@@ -334,11 +466,88 @@
                         document.body.removeChild(notification);
                     }, 500);
                 }, 3000);
-                
+
                 // 从URL中移除参数
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         };
     </script>
+
+<script id="xiaolan-test-js">
+document.addEventListener(
+    'DOMContentLoaded',
+    function () {
+        const button =
+            document.getElementById(
+                'xiaolan-test-btn'
+            );
+
+        const result =
+            document.getElementById(
+                'xiaolan-test-result'
+            );
+
+        if (!button || !result) {
+            return;
+        }
+
+        button.addEventListener(
+            'click',
+            async function () {
+                button.disabled = true;
+                button.textContent =
+                    '正在测试...';
+
+                result.style.display =
+                    'block';
+
+                result.textContent =
+                    '正在连接...';
+
+                try {
+                    const response =
+                        await fetch(
+                            '/xiaolan_webdav/test',
+                            {
+                                method: 'POST'
+                            }
+                        );
+
+                    const data =
+                        await response.json();
+
+                    result.textContent =
+                        data.message;
+
+                    if (
+                        response.ok
+                        && data.success
+                    ) {
+                        result.style.background =
+                            '#d4edda';
+                    } else {
+                        result.style.background =
+                            '#f8d7da';
+                    }
+
+                } catch (error) {
+                    result.textContent =
+                        '测试请求失败';
+
+                    result.style.background =
+                        '#f8d7da';
+
+                } finally {
+                    button.disabled = false;
+
+                    button.textContent =
+                        '测试 WebDAV 连接';
+                }
+            }
+        );
+    }
+);
+</script>
+
 </body>
 </html>
