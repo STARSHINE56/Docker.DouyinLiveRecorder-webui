@@ -1,0 +1,780 @@
+name: Add Xiaolan WebDAV V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: add-xiaolan-webdav-v1
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    name: Add Xiaolan WebDAV
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Backup files
+        run: |
+          mkdir -p .workflow-backup
+          cp webui.py .workflow-backup/webui.py
+          cp templates/index.html .workflow-backup/index.html
+          cp config/config.ini .workflow-backup/config.ini
+
+      - name: Apply Xiaolan WebDAV patch
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          # ============================================================
+          # 1. config/config.ini
+          # ============================================================
+
+          config_path = Path("config/config.ini")
+          config_text = config_path.read_text(
+              encoding="utf-8-sig"
+          )
+
+          section = """
+          [小蓝网盘]
+          WebDAV地址 =
+          WebDAV用户名 =
+          WebDAV密码 =
+          上传目录 = /直播录像/
+          """
+
+          if "[小蓝网盘]" not in config_text:
+              config_text = (
+                  config_text.rstrip()
+                  + "\n\n"
+                  + section.strip()
+                  + "\n"
+              )
+
+              config_path.write_text(
+                  config_text,
+                  encoding="utf-8-sig"
+              )
+
+              print("OK: 添加 [小蓝网盘] 配置")
+          else:
+              print("SKIP: [小蓝网盘] 已存在")
+
+          # ============================================================
+          # 2. webui.py
+          # ============================================================
+
+          webui_path = Path("webui.py")
+          webui_text = webui_path.read_text(
+              encoding="utf-8"
+          )
+
+          # requests
+          if "import requests" not in webui_text:
+              import_marker = "import subprocess\n"
+
+              if import_marker not in webui_text:
+                  raise RuntimeError(
+                      "webui.py 中找不到 import subprocess"
+                  )
+
+              webui_text = webui_text.replace(
+                  import_marker,
+                  import_marker + "import requests\n",
+                  1
+              )
+
+              print("OK: 添加 requests")
+          else:
+              print("SKIP: requests 已存在")
+
+          # 添加小蓝网盘路由
+          if "def xiaolan_webdav_page" not in webui_text:
+
+              route_code = r'''
+
+          @app.route('/xiaolan_webdav', methods=['GET', 'POST'])
+          def xiaolan_webdav_page():
+              config_path = os.path.join(
+                  os.getcwd(),
+                  'config',
+                  'config.ini'
+              )
+
+              if request.method == 'POST':
+                  config = read_config(config_path)
+
+                  if '小蓝网盘' not in config:
+                      config.add_section('小蓝网盘')
+
+                  allowed_keys = [
+                      'WebDAV地址',
+                      'WebDAV用户名',
+                      'WebDAV密码',
+                      '上传目录',
+                  ]
+
+                  for key in allowed_keys:
+                      if key in request.form:
+                          config.set(
+                              '小蓝网盘',
+                              key,
+                              request.form.get(
+                                  key,
+                                  ''
+                              ).strip()
+                          )
+
+                  write_config(
+                      config,
+                      config_path
+                  )
+
+                  return redirect(
+                      url_for(
+                          'xiaolan_webdav_page',
+                          success='true'
+                      )
+                  )
+
+              config = read_config(
+                  config_path
+              )
+
+              if '小蓝网盘' not in config:
+                  config.add_section(
+                      '小蓝网盘'
+                  )
+
+              return render_template(
+                  'index.html',
+                  config=config,
+                  active_tab='xiaolan_webdav',
+                  section='小蓝网盘'
+              )
+
+
+          @app.route('/xiaolan_webdav/test', methods=['POST'])
+          def test_xiaolan_webdav():
+              config_path = os.path.join(
+                  os.getcwd(),
+                  'config',
+                  'config.ini'
+              )
+
+              config = read_config(
+                  config_path
+              )
+
+              if '小蓝网盘' not in config:
+                  return {
+                      'success': False,
+                      'message': '请先保存 WebDAV 配置'
+                  }, 400
+
+              webdav_url = config.get(
+                  '小蓝网盘',
+                  'WebDAV地址',
+                  fallback=''
+              ).strip()
+
+              username = config.get(
+                  '小蓝网盘',
+                  'WebDAV用户名',
+                  fallback=''
+              ).strip()
+
+              password = config.get(
+                  '小蓝网盘',
+                  'WebDAV密码',
+                  fallback=''
+              )
+
+              if not webdav_url:
+                  return {
+                      'success': False,
+                      'message': 'WebDAV 地址不能为空'
+                  }, 400
+
+              if not (
+                  webdav_url.startswith('https://')
+                  or
+                  webdav_url.startswith('http://')
+              ):
+                  return {
+                      'success': False,
+                      'message': 'WebDAV 地址必须以 http:// 或 https:// 开头'
+                  }, 400
+
+              headers = {
+                  'Depth': '0',
+                  'User-Agent': (
+                      'DouyinLiveRecorder-WebUI/'
+                      'Xiaolan-WebDAV'
+                  ),
+              }
+
+              try:
+                  response = requests.request(
+                      'PROPFIND',
+                      webdav_url,
+                      auth=(
+                          username,
+                          password
+                      ),
+                      headers=headers,
+                      timeout=15,
+                      allow_redirects=True
+                  )
+
+                  if response.status_code in (
+                      200,
+                      201,
+                      204,
+                      207,
+                  ):
+                      return {
+                          'success': True,
+                          'message': (
+                              '小蓝网盘 WebDAV '
+                              '连接成功'
+                          )
+                      }
+
+                  if response.status_code == 401:
+                      message = (
+                          '认证失败，请检查'
+                          '用户名和密码'
+                      )
+
+                  elif response.status_code == 403:
+                      message = (
+                          '服务器拒绝访问，'
+                          '请检查 WebDAV 权限'
+                      )
+
+                  elif response.status_code == 404:
+                      message = (
+                          'WebDAV 地址不存在，'
+                          '请检查地址'
+                      )
+
+                  else:
+                      message = (
+                          '连接失败，HTTP 状态码：'
+                          + str(
+                              response.status_code
+                          )
+                      )
+
+                  return {
+                      'success': False,
+                      'message': message
+                  }, 400
+
+              except requests.exceptions.Timeout:
+                  return {
+                      'success': False,
+                      'message': '连接超时'
+                  }, 400
+
+              except requests.exceptions.SSLError:
+                  return {
+                      'success': False,
+                      'message': 'SSL 证书验证失败'
+                  }, 400
+
+              except requests.exceptions.RequestException as exc:
+                  logger.warning(
+                      '小蓝网盘 WebDAV '
+                      '连接测试失败: %s',
+                      exc
+                  )
+
+                  return {
+                      'success': False,
+                      'message': '无法连接 WebDAV 服务器'
+                  }, 400
+          '''
+
+              marker = "\n\n@app.route('/log')\n"
+
+              if marker not in webui_text:
+                  raise RuntimeError(
+                      "webui.py 中找不到 /log 路由插入点"
+                  )
+
+              webui_text = webui_text.replace(
+                  marker,
+                  route_code + marker,
+                  1
+              )
+
+              print("OK: 添加小蓝网盘 WebDAV 路由")
+          else:
+              print("SKIP: 小蓝网盘路由已存在")
+
+          webui_path.write_text(
+              webui_text,
+              encoding="utf-8"
+          )
+
+          # ============================================================
+          # 3. templates/index.html
+          # ============================================================
+
+          html_path = Path(
+              "templates/index.html"
+          )
+
+          html = html_path.read_text(
+              encoding="utf-8"
+          )
+
+          # 顶部标签
+          if "active_tab == 'xiaolan_webdav'" not in html:
+
+              marker = """                <a href="{{ url_for('account_settings_page') }}" class="tab-button {% if active_tab == 'account_settings' %}active{% endif %}">账号密码</a>
+          """
+
+              if marker not in html:
+                  raise RuntimeError(
+                      "index.html 中找不到账号密码标签"
+                  )
+
+              new_tab = marker + """                <a href="{{ url_for('xiaolan_webdav_page') }}" class="tab-button {% if active_tab == 'xiaolan_webdav' %}active{% endif %}">小蓝网盘</a>
+          """
+
+              html = html.replace(
+                  marker,
+                  new_tab,
+                  1
+              )
+
+              print("OK: 添加小蓝网盘顶部标签")
+          else:
+              print("SKIP: 小蓝网盘标签已存在")
+
+          # 小蓝网盘页面
+          if "id=\"xiaolan-test-btn\"" not in html:
+
+              page_code = r'''
+              {% elif active_tab == 'xiaolan_webdav' %}
+              <div class="config-section">
+                  <h2>小蓝网盘 WebDAV</h2>
+
+                  <p style="
+                      line-height: 1.7;
+                      color: #666;
+                      margin-bottom: 20px;
+                  ">
+                      请在小蓝网盘中开启 WebDAV，
+                      然后把 WebDAV 地址、用户名和密码
+                      填写到这里。
+                  </p>
+
+                  <form
+                      action="{{ url_for('xiaolan_webdav_page') }}"
+                      method="post"
+                  >
+
+                      <div class="form-group">
+                          <label for="WebDAV地址">
+                              WebDAV 地址:
+                          </label>
+
+                          <input
+                              type="text"
+                              id="WebDAV地址"
+                              name="WebDAV地址"
+                              placeholder="https://..."
+                              value="{{ config.get(
+                                  section,
+                                  'WebDAV地址',
+                                  fallback=''
+                              ) }}"
+                          >
+                      </div>
+
+                      <div class="form-group">
+                          <label for="WebDAV用户名">
+                              WebDAV 用户名:
+                          </label>
+
+                          <input
+                              type="text"
+                              id="WebDAV用户名"
+                              name="WebDAV用户名"
+                              value="{{ config.get(
+                                  section,
+                                  'WebDAV用户名',
+                                  fallback=''
+                              ) }}"
+                          >
+                      </div>
+
+                      <div class="form-group">
+                          <label for="WebDAV密码">
+                              WebDAV 密码:
+                          </label>
+
+                          <input
+                              type="password"
+                              id="WebDAV密码"
+                              name="WebDAV密码"
+                              value="{{ config.get(
+                                  section,
+                                  'WebDAV密码',
+                                  fallback=''
+                              ) }}"
+                              style="
+                                  width: calc(100% - 22px);
+                                  padding: 10px;
+                                  border: 1px solid #ccc;
+                                  border-radius: 4px;
+                                  font-size: 1em;
+                                  box-sizing: border-box;
+                              "
+                          >
+                      </div>
+
+                      <div class="form-group">
+                          <label for="上传目录">
+                              上传目录:
+                          </label>
+
+                          <input
+                              type="text"
+                              id="上传目录"
+                              name="上传目录"
+                              placeholder="/直播录像/"
+                              value="{{ config.get(
+                                  section,
+                                  '上传目录',
+                                  fallback='/直播录像/'
+                              ) }}"
+                          >
+                      </div>
+
+                      <button type="submit">
+                          保存 WebDAV 配置
+                      </button>
+                  </form>
+
+                  <button
+                      id="xiaolan-test-btn"
+                      type="button"
+                      style="
+                          background-color: #007bff;
+                          color: white;
+                          padding: 12px 25px;
+                          border: none;
+                          border-radius: 5px;
+                          cursor: pointer;
+                          font-size: 1.05em;
+                          width: 100%;
+                          margin-top: 12px;
+                      "
+                  >
+                      测试 WebDAV 连接
+                  </button>
+
+                  <div
+                      id="xiaolan-test-result"
+                      style="
+                          margin-top: 15px;
+                          padding: 12px;
+                          border-radius: 5px;
+                          display: none;
+                      "
+                  ></div>
+              </div>
+          '''
+
+              marker = """
+              {% endif %}
+          """
+
+              # 使用页面最后一个 endif
+              index = html.rfind(
+                  marker
+              )
+
+              if index < 0:
+                  raise RuntimeError(
+                      "index.html 中找不到页面结束标记"
+                  )
+
+              html = (
+                  html[:index]
+                  + page_code
+                  + html[index:]
+              )
+
+              print("OK: 添加 WebDAV 配置页面")
+          else:
+              print("SKIP: WebDAV 页面已存在")
+
+          # JS 测试按钮
+          if "xiaolan-test-result" in html and \
+                  "fetch('/xiaolan_webdav/test'" not in html:
+
+              js_code = r'''
+          <script>
+          document.addEventListener(
+              'DOMContentLoaded',
+              function () {
+                  const button =
+                      document.getElementById(
+                          'xiaolan-test-btn'
+                      );
+
+                  const result =
+                      document.getElementById(
+                          'xiaolan-test-result'
+                      );
+
+                  if (!button || !result) {
+                      return;
+                  }
+
+                  button.addEventListener(
+                      'click',
+                      async function () {
+                          button.disabled = true;
+                          button.textContent =
+                              '正在测试连接...';
+
+                          result.style.display =
+                              'block';
+
+                          result.style.background =
+                              '#eef2f7';
+
+                          result.style.color =
+                              '#333';
+
+                          result.textContent =
+                              '正在连接小蓝网盘...';
+
+                          try {
+                              const response =
+                                  await fetch(
+                                      '/xiaolan_webdav/test',
+                                      {
+                                          method: 'POST'
+                                      }
+                                  );
+
+                              const data =
+                                  await response.json();
+
+                              if (
+                                  response.ok &&
+                                  data.success
+                              ) {
+                                  result.style.background =
+                                      '#d4edda';
+
+                                  result.style.color =
+                                      '#155724';
+                              } else {
+                                  result.style.background =
+                                      '#f8d7da';
+
+                                  result.style.color =
+                                      '#721c24';
+                              }
+
+                              result.textContent =
+                                  data.message ||
+                                  '未知结果';
+
+                          } catch (error) {
+                              result.style.background =
+                                  '#f8d7da';
+
+                              result.style.color =
+                                  '#721c24';
+
+                              result.textContent =
+                                  '请求失败，请检查服务是否正常运行';
+                          } finally {
+                              button.disabled = false;
+
+                              button.textContent =
+                                  '测试 WebDAV 连接';
+                          }
+                      }
+                  );
+              }
+          );
+          </script>
+          '''
+
+              body_marker = "</body>"
+
+              if body_marker not in html:
+                  raise RuntimeError(
+                      "index.html 中找不到 </body>"
+                  )
+
+              html = html.replace(
+                  body_marker,
+                  js_code
+                  + "\n"
+                  + body_marker,
+                  1
+              )
+
+              print("OK: 添加连接测试 JavaScript")
+
+          html_path.write_text(
+              html,
+              encoding="utf-8"
+          )
+
+          print("")
+          print("==============================")
+          print("小蓝网盘 WebDAV V1 修改完成")
+          print("==============================")
+
+          PY
+
+      - name: Show changed files
+        run: |
+          git status --short
+          echo
+          git diff --stat
+
+      - name: Check diff
+        run: |
+          git diff --check
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Python syntax check
+        run: |
+          python -m py_compile webui.py
+          python -m py_compile main.py
+
+      - name: Test Flask routes
+        run: |
+          python <<'PY'
+          import webui
+
+          rules = {
+              rule.rule
+              for rule in webui.app.url_map.iter_rules()
+          }
+
+          required = {
+              '/xiaolan_webdav',
+              '/xiaolan_webdav/test',
+          }
+
+          missing = required - rules
+
+          if missing:
+              raise RuntimeError(
+                  f"缺少 Flask 路由: {missing}"
+              )
+
+          print(
+              "OK: 小蓝网盘 Flask 路由检查通过"
+          )
+          PY
+
+      - name: Verify config
+        run: |
+          python <<'PY'
+          import configparser
+
+          config = configparser.ConfigParser(
+              interpolation=None
+          )
+
+          config.read(
+              'config/config.ini',
+              encoding='utf-8-sig'
+          )
+
+          if '小蓝网盘' not in config:
+              raise RuntimeError(
+                  '缺少 [小蓝网盘] 配置'
+              )
+
+          required = [
+              'webdav地址',
+              'webdav用户名',
+              'webdav密码',
+              '上传目录',
+          ]
+
+          section = config['小蓝网盘']
+
+          for key in required:
+              if key not in section:
+                  raise RuntimeError(
+                      f'缺少配置项: {key}'
+                  )
+
+          print(
+              'OK: 小蓝网盘配置检查通过'
+          )
+          PY
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "没有需要提交的修改"
+            exit 0
+          fi
+
+          git add \
+            webui.py \
+            templates/index.html \
+            config/config.ini
+
+          git commit -m "feat: add Xiaolan WebDAV settings"
+
+          git push origin HEAD:main
+
+      - name: Summary
+        run: |
+          {
+            echo "## ✅ 小蓝网盘 WebDAV V1"
+            echo
+            echo "已完成："
+            echo
+            echo "- WebUI 新增「小蓝网盘」页面"
+            echo "- WebDAV 地址配置"
+            echo "- WebDAV 用户名配置"
+            echo "- WebDAV 密码配置"
+            echo "- 上传目录配置"
+            echo "- WebDAV 一键连接测试"
+            echo "- Python 语法检查"
+            echo "- Flask 路由检查"
+            echo "- 配置文件检查"
+            echo
+            echo "本版本不会上传录像，也不会删除本地录像。"
+            echo "先确认 WebDAV 测试成功后，再做自动上传 V2。"
+          } >> "$GITHUB_STEP_SUMMARY"
