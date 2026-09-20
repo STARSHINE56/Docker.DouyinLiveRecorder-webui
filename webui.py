@@ -48,6 +48,47 @@ def read_url_config():
         return ""
 
 
+def write_url_config(content):
+    path = Path(URL_CONFIG_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        content.rstrip() + ("\n" if content.strip() else ""),
+        encoding="utf-8-sig"
+    )
+
+
+def monitor_lines_raw():
+    rows = []
+    for raw in read_url_config().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        rows.append(line)
+    return rows
+
+
+def extract_anchor_name_from_logs(url):
+    short = url.rstrip("/").rsplit("/", 1)[-1]
+
+    patterns = (
+        re.compile(r"主播\s*[:：]\s*([^,，|]+)"),
+        re.compile(r"序号\d+\s+([^\s|]+)\s+(?:等待直播|正在录制|直播中)"),
+    )
+
+    for line in reversed(read_log_lines(800)):
+        if url not in line and short not in line:
+            continue
+
+        for pattern in patterns:
+            match = pattern.search(line)
+            if match:
+                name = match.group(1).strip()
+                if name:
+                    return name
+
+    return ""
+
+
 def read_log_lines(limit=300):
     lines = []
     for name in LOG_FILES:
@@ -87,12 +128,15 @@ def parse_monitor_lines():
             continue
 
         name_match = re.search(r"主播\s*[:：]\s*([^,，|]+)", line)
-        name = name_match.group(1).strip() if name_match else "等待获取主播名"
 
         main_part = re.split(r"[,，]\s*主播\s*[:：]", line, maxsplit=1)[0].strip()
         url = main_part.split("|", 1)[0].strip()
         if not url.startswith(("http://", "https://")):
             continue
+
+        name = name_match.group(1).strip() if name_match else ""
+        if not name:
+            name = extract_anchor_name_from_logs(url) or "待识别主播"
 
         items.append({
             "name": name,
@@ -125,7 +169,7 @@ def get_monitor_snapshot():
     for item in items:
         keys = [item["name"], item["url"]]
         for line in reversed(logs):
-            if not any(k and k != "等待获取主播名" and k in line for k in keys):
+            if not any(k and k not in ("等待获取主播名", "待识别主播") and k in line for k in keys):
                 continue
             state = classify_status(line)
             if state:
@@ -143,9 +187,61 @@ def get_monitor_snapshot():
         "error": sum(i["status"] == "error" for i in items),
     }
 
-    event_words = ("直播", "录制", "推送", "上传", "失败", "异常", "WebUI")
-    events = [x for x in logs if any(k in x for k in event_words)][-8:]
-    events.reverse()
+    def summarize_event(line):
+        ts = re.search(
+            r"(20\d\d[-/]\d\d[-/]\d\d[ T](\d\d:\d\d:\d\d))",
+            line
+        )
+        time_text = ts.group(2) if ts else ""
+
+        anchor = ""
+        anchor_match = re.search(
+            r"(?:主播\s*[:：]\s*|序号\d+\s+)([^|,，\s]+)",
+            line
+        )
+        if anchor_match:
+            anchor = anchor_match.group(1).strip()
+
+        if "正在录制" in line or "开始录制" in line:
+            action = "开始录制"
+        elif "直播已结束" in line or "关播" in line:
+            action = "直播结束"
+        elif "等待直播" in line:
+            action = "等待直播"
+        elif "上传" in line and any(k in line for k in ("成功", "完成")):
+            action = "上传完成"
+        elif "上传" in line and any(k in line for k in ("失败", "异常")):
+            action = "上传失败"
+        elif "推送" in line and any(k in line for k in ("成功", "完成")):
+            action = "推送成功"
+        elif "推送" in line and any(k in line for k in ("失败", "异常")):
+            action = "推送失败"
+        elif "直播中" in line or "已开播" in line:
+            action = "检测到开播"
+        elif "错误" in line or "异常" in line or "失败" in line:
+            action = "检测异常"
+        elif "WebUI启动" in line:
+            action = "WebUI 已启动"
+        else:
+            return ""
+
+        parts = [x for x in (time_text, anchor, action) if x]
+        return " · ".join(parts)
+
+    events = []
+    seen = set()
+
+    for line in reversed(logs):
+        summary = summarize_event(line)
+
+        if not summary or summary in seen:
+            continue
+
+        seen.add(summary)
+        events.append(summary)
+
+        if len(events) >= 8:
+            break
 
     return {
         "service_running": recording_process is not None and recording_process.poll() is None,
@@ -193,15 +289,69 @@ def run_with_auto_record():
 
 @app.route("/url_config", methods=["GET", "POST"])
 def url_config_page():
-    path = Path(URL_CONFIG_FILE)
     if request.method == "POST":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(request.form.get("url_config_content", ""), encoding="utf-8-sig")
-        return redirect(url_for("url_config_page", success="true"))
+        write_url_config(
+            request.form.get("url_config_content", "")
+        )
+        return redirect(
+            url_for("url_config_page", success="true")
+        )
+
     return render_template(
         "index.html",
         active_tab="url_config",
         url_config_content=read_url_config(),
+        monitor_items=parse_monitor_lines(),
+    )
+
+
+@app.route("/anchors/add", methods=["POST"])
+def add_anchor():
+    url = request.form.get("anchor_url", "").strip()
+    name = request.form.get("anchor_name", "").strip()
+
+    if not url.startswith(("http://", "https://")):
+        return redirect(
+            url_for("url_config_page", error="invalid_url")
+        )
+
+    lines = monitor_lines_raw()
+    existing_urls = []
+
+    for line in lines:
+        main_part = re.split(
+            r"[,，]\s*主播\s*[:：]",
+            line,
+            maxsplit=1
+        )[0].strip()
+
+        existing_urls.append(
+            main_part.split("|", 1)[0].strip()
+        )
+
+    if url not in existing_urls:
+        line = url
+        if name:
+            line += f",主播: {name}"
+
+        lines.append(line)
+        write_url_config("\n".join(lines))
+
+    return redirect(
+        url_for("url_config_page", success="true")
+    )
+
+
+@app.route("/anchors/delete/<int:index>", methods=["POST"])
+def delete_anchor(index):
+    lines = monitor_lines_raw()
+
+    if 0 <= index < len(lines):
+        del lines[index]
+        write_url_config("\n".join(lines))
+
+    return redirect(
+        url_for("url_config_page", success="true")
     )
 
 
