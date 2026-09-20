@@ -48,14 +48,23 @@ jobs:
           python -m py_compile main.py
           python -m py_compile scripts/rebuild_webui.py
 
-      - name: Template static checks
+      - name: Install minimal test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet "Flask>=3,<4" "requests>=2.31,<3" "loguru>=0.7,<1"
+
+      - name: Template checks
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from jinja2 import Environment
+
           p = Path("templates/index.html")
           text = p.read_text(encoding="utf-8")
+
           required = [
               "/api/status",
               "主播监控",
@@ -67,11 +76,10 @@ jobs:
           missing = [x for x in required if x not in text]
           if missing:
               raise SystemExit("模板缺少关键内容: " + ", ".join(missing))
-          if text.count("{%") != text.count("%}"):
-              raise SystemExit("Jinja 控制块数量不匹配")
-          if text.count("{{") != text.count("}}"):
-              raise SystemExit("Jinja 表达式数量不匹配")
-          print("Template checks passed.")
+
+          # 使用真正的 Jinja 解析器，不再用 {{ / }} 数量硬判断。
+          Environment().parse(text)
+          print("Jinja template parse passed.")
           PY
 
       - name: Install minimal test dependencies
