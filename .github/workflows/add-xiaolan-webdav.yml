@@ -1,4 +1,4 @@
-name: Xiaolan WebDAV Auto Upload V3
+name: Xiaolan WebDAV Auto Upload V3.1
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: xiaolan-webdav-auto-upload-v3
+  group: xiaolan-webdav-auto-upload-v31
   cancel-in-progress: false
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
               encoding="utf-8-sig"
           )
 
-          # 删除旧的小蓝网盘配置段，重新写入完整版本
+          # 删除旧的小蓝网盘配置段，避免重复
           config_text = re.sub(
               r"\n*\[小蓝网盘\][\s\S]*?(?=\n\[[^\]]+\]|\Z)",
               "",
@@ -70,20 +70,28 @@ jobs:
               + "\n"
           )
 
-          # 自动启用录制完成脚本
-          config_text = re.sub(
-              r"是否录制完成后执行自定义脚本\s*=\s*.*",
-              "是否录制完成后执行自定义脚本 = 是",
-              config_text,
-              count=1
-          )
+          # 启用录制完成后执行脚本
+          if re.search(
+              r"是否录制完成后执行自定义脚本\s*=",
+              config_text
+          ):
+              config_text = re.sub(
+                  r"是否录制完成后执行自定义脚本\s*=\s*.*",
+                  "是否录制完成后执行自定义脚本 = 是",
+                  config_text,
+                  count=1
+              )
 
-          config_text = re.sub(
-              r"自定义脚本执行命令\s*=\s*.*",
-              "自定义脚本执行命令 = python upload_after_record.py",
-              config_text,
-              count=1
-          )
+          if re.search(
+              r"自定义脚本执行命令\s*=",
+              config_text
+          ):
+              config_text = re.sub(
+                  r"自定义脚本执行命令\s*=\s*.*",
+                  "自定义脚本执行命令 = python upload_after_record.py",
+                  config_text,
+                  count=1
+              )
 
           config_path.write_text(
               config_text,
@@ -93,14 +101,13 @@ jobs:
           print("OK 1: config.ini")
 
           # =========================================================
-          # 2. 创建 upload_after_record.py
+          # 2. upload_after_record.py
           # =========================================================
 
           uploader = r'''#!/usr/bin/env python3
 
           import argparse
           import configparser
-          import os
           import re
           import sys
           import time
@@ -310,10 +317,12 @@ jobs:
                       return True
 
                   previous = size
+
                   time.sleep(interval)
 
-              return path.exists() and (
-                  path.stat().st_size > 0
+              return (
+                  path.exists()
+                  and path.stat().st_size > 0
               )
 
 
@@ -327,12 +336,11 @@ jobs:
 
               stem = source.stem
 
-              # 与主程序分段匹配规则保持接近：
-              # xxx_001.ts -> prefix xxx
-              prefix = stem.rsplit(
-                  "_",
-                  1
-              )[0] if "_" in stem else stem
+              prefix = (
+                  stem.rsplit("_", 1)[0]
+                  if "_" in stem
+                  else stem
+              )
 
               deadline = (
                   time.time()
@@ -343,6 +351,7 @@ jobs:
               )
 
               last_seen = []
+
               stable_rounds = 0
 
               log(
@@ -357,8 +366,7 @@ jobs:
                           for p in directory.glob("*.mp4")
                           if (
                               p.stem == stem
-                              or
-                              p.stem.startswith(
+                              or p.stem.startswith(
                                   prefix
                               )
                           )
@@ -381,8 +389,9 @@ jobs:
                       for p in candidates
                   ]
 
-                  if candidates and (
-                      names == last_seen
+                  if (
+                      candidates
+                      and names == last_seen
                   ):
                       stable_rounds += 1
                   else:
@@ -390,7 +399,6 @@ jobs:
 
                   last_seen = names
 
-                  # 连续稳定几轮，认为转码已经基本完成
                   if (
                       candidates
                       and stable_rounds >= 3
@@ -412,8 +420,7 @@ jobs:
                   for p in directory.glob("*.mp4")
                   if (
                       p.stem == stem
-                      or
-                      p.stem.startswith(
+                      or p.stem.startswith(
                           prefix
                       )
                   )
@@ -489,7 +496,7 @@ jobs:
                               207,
                           ):
                               log(
-                                  f"上传成功: "
+                                  "上传成功并通过远端校验: "
                                   f"{local_file.name}"
                               )
 
@@ -499,6 +506,7 @@ jobs:
                               "上传完成但远端校验失败 "
                               f"HTTP {verify.status_code}"
                           )
+
                       else:
                           log(
                               "上传失败 "
@@ -547,6 +555,7 @@ jobs:
                       "没有收到录像文件路径，"
                       "跳过上传"
                   )
+
                   return 0
 
               cfg = load_config()
@@ -560,6 +569,7 @@ jobs:
                   log(
                       "自动上传未开启，跳过"
                   )
+
                   return 0
 
               webdav_url = cfg.get(
@@ -582,6 +592,7 @@ jobs:
                       "WebDAV 地址为空，"
                       "取消上传"
                   )
+
                   return 1
 
               if not webdav_url.startswith(
@@ -590,6 +601,7 @@ jobs:
                   log(
                       "WebDAV 地址格式错误"
                   )
+
                   return 1
 
               root_dir = cfg.get(
@@ -628,6 +640,7 @@ jobs:
                           )
                       )
                   )
+
               except ValueError:
                   retries = 3
 
@@ -641,6 +654,7 @@ jobs:
                           )
                       )
                   )
+
               except ValueError:
                   wait_seconds = 1800
 
@@ -648,8 +662,6 @@ jobs:
                   args.record_name
               )
 
-              # record_name 某些情况下可能带平台或其他前缀，
-              # 优先保留最后一段作为主播目录名
               if " " in anchor_name:
                   anchor_name = safe_name(
                       anchor_name.split(
@@ -680,8 +692,9 @@ jobs:
               if not mp4_files:
                   log(
                       "没有找到转换完成的 MP4，"
-                      "本次不上传，也不会删除原文件"
+                      "不会上传，也不会删除原文件"
                   )
+
                   return 1
 
               session = requests.Session()
@@ -702,10 +715,12 @@ jobs:
                           auth
                       )
                   )
+
               except Exception as exc:
                   log(
                       f"创建远端目录失败: {exc}"
                   )
+
                   return 1
 
               all_success = True
@@ -723,7 +738,7 @@ jobs:
                       all_success = False
 
                       log(
-                          f"保留本地文件: "
+                          "上传失败，保留本地文件: "
                           f"{mp4_file}"
                       )
 
@@ -734,25 +749,27 @@ jobs:
                           mp4_file.unlink()
 
                           log(
-                              "上传校验成功，"
-                              f"已删除本地: "
+                              "远端校验成功，"
+                              "已删除本地文件: "
                               f"{mp4_file.name}"
                           )
+
                       except Exception as exc:
                           log(
                               "上传成功，但删除"
-                              f"本地失败: {exc}"
+                              f"本地文件失败: {exc}"
                           )
 
               if all_success:
                   log(
-                      "本次录像上传任务完成"
+                      "本次录像上传任务全部完成"
                   )
+
                   return 0
 
               log(
                   "部分文件上传失败，"
-                  "失败文件已保留在本地"
+                  "失败文件已保留"
               )
 
               return 1
@@ -762,18 +779,11 @@ jobs:
               sys.exit(main())
           '''
 
-          # 清除 heredoc 左侧统一缩进
-          uploader_lines = (
-              uploader.splitlines()
-          )
-
           uploader = "\n".join(
               line[10:]
-              if line.startswith(
-                  "          "
-              )
+              if line.startswith("          ")
               else line
-              for line in uploader_lines
+              for line in uploader.splitlines()
           ).lstrip()
 
           Path(
@@ -783,7 +793,9 @@ jobs:
               encoding="utf-8"
           )
 
-          print("OK 2: upload_after_record.py")
+          print(
+              "OK 2: upload_after_record.py"
+          )
 
           # =========================================================
           # 3. webui.py
@@ -800,8 +812,7 @@ jobs:
 
               if marker not in webui:
                   raise RuntimeError(
-                      "webui.py 找不到 "
-                      "import subprocess"
+                      "webui.py 找不到 import subprocess"
                   )
 
               webui = webui.replace(
@@ -810,34 +821,26 @@ jobs:
                   1
               )
 
-          # 删除旧的 V1/V2 小蓝路由，避免重复
-          start_marker = (
+          # 清除旧的小蓝路由
+          old_start = webui.find(
               "@app.route('/xiaolan_webdav'"
           )
 
-          log_marker = (
-              "@app.route('/log')"
-          )
-
-          start = webui.find(
-              start_marker
-          )
-
-          if start >= 0:
-              end = webui.find(
-                  log_marker,
-                  start
+          if old_start >= 0:
+              old_end = webui.find(
+                  "@app.route('/log')",
+                  old_start
               )
 
-              if end < 0:
+              if old_end < 0:
                   raise RuntimeError(
-                      "旧小蓝路由存在，"
-                      "但找不到 /log 结束位置"
+                      "发现旧小蓝路由，"
+                      "但找不到 /log 路由"
                   )
 
               webui = (
-                  webui[:start]
-                  + webui[end:]
+                  webui[:old_start]
+                  + webui[old_end:]
               )
 
           route_code = r'''
@@ -959,8 +962,7 @@ jobs:
                   return {
                       'success': False,
                       'message':
-                          'WebDAV 地址必须以 '
-                          'http:// 或 https:// 开头'
+                          'WebDAV 地址格式错误'
                   }, 400
 
               try:
@@ -995,11 +997,9 @@ jobs:
 
                   messages = {
                       401:
-                          '认证失败，请检查'
-                          '用户名和密码',
+                          '认证失败，请检查用户名和密码',
                       403:
-                          '访问被拒绝，请检查'
-                          'WebDAV 权限',
+                          '访问被拒绝，请检查权限',
                       404:
                           'WebDAV 地址不存在',
                   }
@@ -1029,7 +1029,7 @@ jobs:
 
               except requests.exceptions.RequestException as exc:
                   logger.error(
-                      f'小蓝WebDAV连接失败: {exc}'
+                      f'小蓝 WebDAV 连接失败: {exc}'
                   )
 
                   return {
@@ -1041,12 +1041,9 @@ jobs:
 
           '''
 
-          # 去掉 route_code 左侧统一缩进
           route_code = "\n".join(
               line[10:]
-              if line.startswith(
-                  "          "
-              )
+              if line.startswith("          ")
               else line
               for line in route_code.splitlines()
           ).lstrip()
@@ -1086,21 +1083,21 @@ jobs:
               encoding="utf-8"
           )
 
-          # 清理之前可能留下的菜单项
+          # 删除可能存在的旧小蓝菜单
           html = re.sub(
               r'\s*<a[^>]*xiaolan_webdav_page[\s\S]*?</a>',
               '',
               html
           )
 
-          account_tab = (
+          account_marker = (
               '<a href="{{ url_for('
               "'account_settings_page'"
-              ') }}" '
+              ') }}"'
           )
 
           account_index = html.find(
-              account_tab
+              account_marker
           )
 
           if account_index < 0:
@@ -1132,15 +1129,13 @@ jobs:
               + html[account_end:]
           )
 
-          # 删除之前可能错误插入的独立页面块
+          # 删除之前可能残留的页面内容
           html = re.sub(
-              r'\s*\{% if active_tab == [\'"]xiaolan_webdav[\'"] %\}[\s\S]*?\{% endif %\}',
+              r'\s*\{% elif active_tab == [\'"]xiaolan_webdav[\'"] %\}[\s\S]*?(?=\{% endif %\})',
               '',
               html
           )
 
-          # 找到主模板真正的最后一个 {% endif %}
-          # 它就在 </div> + <script> 之前
           script_marker = (
               "\n    <script>\n"
               "        let lastLogContent"
@@ -1152,7 +1147,7 @@ jobs:
 
           if script_pos < 0:
               raise RuntimeError(
-                  "index.html 找不到日志脚本起点"
+                  "index.html 找不到日志脚本位置"
               )
 
           endif_pos = html.rfind(
@@ -1175,10 +1170,11 @@ jobs:
                     color: #666;
                     line-height: 1.7;
                 ">
-                    录像默认先以 TS 方式安全录制，
-                    转换为 MP4 后再上传。
-                    上传成功并完成远端校验后，
-                    才会根据你的设置删除本地 MP4。
+                    录像先完成 MP4 转换，
+                    然后再上传小蓝网盘。
+                    每个主播可以自动创建独立文件夹。
+                    上传成功并通过远端校验以后，
+                    才会根据设置删除本地 MP4。
                 </p>
 
                 <form
@@ -1252,6 +1248,12 @@ jobs:
                     <div class="form-group">
                         <label>自动上传录像</label>
 
+                        {% set v = config.get(
+                            section,
+                            '自动上传录像',
+                            fallback='否'
+                        ) %}
+
                         <select
                             name="自动上传录像"
                             style="
@@ -1259,26 +1261,32 @@ jobs:
                                 width: 200px;
                             "
                         >
-                            {% set v = config.get(
-                                section,
-                                '自动上传录像',
-                                fallback='否'
-                            ) %}
-
                             <option
                                 value="是"
                                 {% if v == '是' %}selected{% endif %}
-                            >是</option>
+                            >
+                                是
+                            </option>
 
                             <option
                                 value="否"
                                 {% if v != '是' %}selected{% endif %}
-                            >否</option>
+                            >
+                                否
+                            </option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label>按主播创建文件夹</label>
+                        <label>
+                            按主播创建文件夹
+                        </label>
+
+                        {% set v = config.get(
+                            section,
+                            '按主播创建文件夹',
+                            fallback='是'
+                        ) %}
 
                         <select
                             name="按主播创建文件夹"
@@ -1287,26 +1295,32 @@ jobs:
                                 width: 200px;
                             "
                         >
-                            {% set v = config.get(
-                                section,
-                                '按主播创建文件夹',
-                                fallback='是'
-                            ) %}
-
                             <option
                                 value="是"
                                 {% if v == '是' %}selected{% endif %}
-                            >是</option>
+                            >
+                                是
+                            </option>
 
                             <option
                                 value="否"
                                 {% if v != '是' %}selected{% endif %}
-                            >否</option>
+                            >
+                                否
+                            </option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label>按日期创建文件夹</label>
+                        <label>
+                            按日期创建文件夹
+                        </label>
+
+                        {% set v = config.get(
+                            section,
+                            '按日期创建文件夹',
+                            fallback='否'
+                        ) %}
 
                         <select
                             name="按日期创建文件夹"
@@ -1315,21 +1329,19 @@ jobs:
                                 width: 200px;
                             "
                         >
-                            {% set v = config.get(
-                                section,
-                                '按日期创建文件夹',
-                                fallback='否'
-                            ) %}
-
                             <option
                                 value="是"
                                 {% if v == '是' %}selected{% endif %}
-                            >是</option>
+                            >
+                                是
+                            </option>
 
                             <option
                                 value="否"
                                 {% if v != '是' %}selected{% endif %}
-                            >否</option>
+                            >
+                                否
+                            </option>
                         </select>
                     </div>
 
@@ -1338,6 +1350,12 @@ jobs:
                             上传成功后删除本地
                         </label>
 
+                        {% set v = config.get(
+                            section,
+                            '上传成功后删除本地',
+                            fallback='否'
+                        ) %}
+
                         <select
                             name="上传成功后删除本地"
                             style="
@@ -1345,26 +1363,26 @@ jobs:
                                 width: 200px;
                             "
                         >
-                            {% set v = config.get(
-                                section,
-                                '上传成功后删除本地',
-                                fallback='否'
-                            ) %}
-
                             <option
                                 value="是"
                                 {% if v == '是' %}selected{% endif %}
-                            >是</option>
+                            >
+                                是
+                            </option>
 
                             <option
                                 value="否"
                                 {% if v != '是' %}selected{% endif %}
-                            >否</option>
+                            >
+                                否
+                            </option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label>上传失败重试次数</label>
+                        <label>
+                            上传失败重试次数
+                        </label>
 
                         <input
                             type="text"
@@ -1431,9 +1449,7 @@ jobs:
 
           page = "\n".join(
               line[10:]
-              if line.startswith(
-                  "          "
-              )
+              if line.startswith("          ")
               else line
               for line in page.splitlines()
           )
@@ -1444,18 +1460,23 @@ jobs:
               + html[endif_pos:]
           )
 
-          # 加测试连接 JS，放在 </body> 前
-          if "xiaolan-test-script-v3" not in html:
-              body_pos = html.rfind(
-                  "</body>"
+          # 删除旧测试 JS
+          html = re.sub(
+              r'\s*<script id="xiaolan-test-script-v3">[\s\S]*?</script>',
+              '',
+              html
+          )
+
+          body_pos = html.rfind(
+              "</body>"
+          )
+
+          if body_pos < 0:
+              raise RuntimeError(
+                  "index.html 找不到 </body>"
               )
 
-              if body_pos < 0:
-                  raise RuntimeError(
-                      "index.html 找不到 </body>"
-                  )
-
-              test_js = r'''
+          test_js = r'''
           <script id="xiaolan-test-script-v3">
           document.addEventListener(
               'DOMContentLoaded',
@@ -1478,6 +1499,7 @@ jobs:
                       'click',
                       async function () {
                           button.disabled = true;
+
                           button.textContent =
                               '正在测试...';
 
@@ -1506,8 +1528,8 @@ jobs:
                                   await response.json();
 
                               if (
-                                  response.ok &&
-                                  data.success
+                                  response.ok
+                                  && data.success
                               ) {
                                   result.style.background =
                                       '#d4edda';
@@ -1523,8 +1545,8 @@ jobs:
                               }
 
                               result.textContent =
-                                  data.message ||
-                                  '未知结果';
+                                  data.message
+                                  || '未知结果';
 
                           } catch (error) {
                               result.style.background =
@@ -1534,9 +1556,11 @@ jobs:
                                   '#721c24';
 
                               result.textContent =
-                                  '请求失败';
+                                  '测试请求失败';
+
                           } finally {
-                              button.disabled = false;
+                              button.disabled =
+                                  false;
 
                               button.textContent =
                                   '测试 WebDAV 连接';
@@ -1549,32 +1573,78 @@ jobs:
 
           '''
 
-              test_js = "\n".join(
-                  line[10:]
-                  if line.startswith(
-                      "          "
-                  )
-                  else line
-                  for line in test_js.splitlines()
-              )
+          test_js = "\n".join(
+              line[10:]
+              if line.startswith("          ")
+              else line
+              for line in test_js.splitlines()
+          )
 
-              html = (
-                  html[:body_pos]
-                  + test_js
-                  + html[body_pos:]
-              )
+          html = (
+              html[:body_pos]
+              + test_js
+              + html[body_pos:]
+          )
 
           html_path.write_text(
               html,
               encoding="utf-8"
           )
 
-          print("OK 4: templates/index.html")
+          print(
+              "OK 4: templates/index.html"
+          )
 
           print("")
           print("============================")
-          print("V3 patch completed")
+          print("V3.1 patch completed")
           print("============================")
+          PY
+
+      - name: Clean whitespace
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path("templates/index.html"),
+              Path("webui.py"),
+              Path("upload_after_record.py"),
+              Path("config/config.ini"),
+          ]
+
+          for path in files:
+              if not path.exists():
+                  continue
+
+              encoding = (
+                  "utf-8-sig"
+                  if path.name == "config.ini"
+                  else "utf-8"
+              )
+
+              text = path.read_text(
+                  encoding=encoding
+              )
+
+              lines = [
+                  line.rstrip()
+                  for line in text.splitlines()
+              ]
+
+              cleaned = (
+                  "\n".join(lines)
+                  + "\n"
+              )
+
+              path.write_text(
+                  cleaned,
+                  encoding=encoding
+              )
+
+              print(
+                  f"OK: cleaned {path}"
+              )
           PY
 
       - name: Check diff
@@ -1601,7 +1671,8 @@ jobs:
 
           routes = {
               rule.rule
-              for rule in webui.app.url_map.iter_rules()
+              for rule
+              in webui.app.url_map.iter_rules()
           }
 
           required = {
@@ -1609,14 +1680,18 @@ jobs:
               "/xiaolan_webdav/test",
           }
 
-          missing = required - routes
+          missing = (
+              required - routes
+          )
 
           if missing:
               raise RuntimeError(
                   f"缺少 Flask 路由: {missing}"
               )
 
-          print("OK: Flask routes")
+          print(
+              "OK: Flask routes"
+          )
           PY
 
       - name: Template render check
@@ -1624,7 +1699,9 @@ jobs:
           python <<'PY'
           import webui
 
-          client = webui.app.test_client()
+          client = (
+              webui.app.test_client()
+          )
 
           response = client.get(
               "/xiaolan_webdav"
@@ -1652,19 +1729,25 @@ jobs:
               errors="replace"
           )
 
-          for text in [
+          required = [
               "小蓝网盘",
               "WebDAV 地址",
+              "自动上传录像",
               "按主播创建文件夹",
+              "按日期创建文件夹",
               "上传成功后删除本地",
               "测试 WebDAV 连接",
-          ]:
-              if text not in html:
+          ]
+
+          for item in required:
+              if item not in html:
                   raise RuntimeError(
-                      f"页面缺少: {text}"
+                      f"页面缺少内容: {item}"
                   )
 
-          print("OK: template render")
+          print(
+              "OK: template render"
+          )
           PY
 
       - name: Config check
@@ -1672,8 +1755,10 @@ jobs:
           python <<'PY'
           import configparser
 
-          config = configparser.ConfigParser(
-              interpolation=None
+          config = (
+              configparser.ConfigParser(
+                  interpolation=None
+              )
           )
 
           config.read(
@@ -1709,35 +1794,45 @@ jobs:
                       f"缺少配置: {key}"
                   )
 
+          if "录制设置" not in config:
+              raise RuntimeError(
+                  "缺少 [录制设置]"
+              )
+
           recording = config[
               "录制设置"
           ]
 
           if (
               recording.get(
-                  "是否录制完成后执行自定义脚本"
+                  "是否录制完成后执行自定义脚本",
+                  ""
               )
               != "是"
           ):
               raise RuntimeError(
-                  "录制完成脚本未启用"
+                  "录制完成脚本没有启用"
               )
+
+          command = recording.get(
+              "自定义脚本执行命令",
+              ""
+          )
 
           if (
               "upload_after_record.py"
-              not in recording.get(
-                  "自定义脚本执行命令",
-                  ""
-              )
+              not in command
           ):
               raise RuntimeError(
                   "上传脚本没有接入"
               )
 
-          print("OK: config")
+          print(
+              "OK: config"
+          )
           PY
 
-      - name: Uploader dry-run check
+      - name: Uploader dry run
         run: |
           python upload_after_record.py \
             --record_name "测试主播" \
@@ -1772,23 +1867,22 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "## ✅ 小蓝网盘 WebDAV V3"
+            echo "## ✅ 小蓝网盘 WebDAV V3.1"
             echo
             echo "已完成："
             echo
-            echo "- 修复上版模板插入失败"
-            echo "- WebUI 小蓝网盘配置页"
-            echo "- WebDAV 一键连接测试"
-            echo "- 自动上传录像开关"
-            echo "- 等待 MP4 转换完成"
-            echo "- 优先上传 MP4"
-            echo "- 每个主播独立文件夹"
-            echo "- 可选按日期再分文件夹"
+            echo "- 修复模板插入问题"
+            echo "- 修复 trailing whitespace"
+            echo "- WebUI 小蓝网盘页面"
+            echo "- WebDAV 连接测试"
+            echo "- 自动上传 MP4"
+            echo "- 每个主播独立目录"
+            echo "- 可选日期目录"
             echo "- 上传失败自动重试"
             echo "- 上传后远端校验"
             echo "- 校验成功后可删除本地 MP4"
             echo "- 上传失败保留本地文件"
             echo
-            echo "默认：自动上传=否，自动删除=否。"
-            echo "请先测试 WebDAV 连接成功，再手动开启。"
+            echo "默认自动上传：否"
+            echo "默认上传成功删除本地：否"
           } >> "$GITHUB_STEP_SUMMARY"
