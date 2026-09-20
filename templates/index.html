@@ -110,11 +110,375 @@
             button[type="submit"]:hover {
                 background-color: #218838;
             }
-        </style>
+
+  /* MOBILE_UI_V1_START */
+
+  * {
+      box-sizing: border-box;
+  }
+
+  html {
+      -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+      margin: 0;
+      padding: 24px 16px;
+      background:
+          linear-gradient(
+              180deg,
+              #f4f7fb 0%,
+              #eef3f8 100%
+          );
+      min-height: 100vh;
+  }
+
+  .container {
+      width: 100%;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 28px;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow:
+          0 12px 35px
+          rgba(0, 0, 0, 0.08);
+  }
+
+  h1 {
+      margin: 0 0 24px;
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: -0.4px;
+  }
+
+  h1 span {
+      display: block;
+      margin-top: 5px;
+      font-size: 16px;
+      font-weight: 500;
+      color: #718096;
+      letter-spacing: 0;
+  }
+
+  .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding: 8px;
+      border: none;
+      border-radius: 14px;
+      background: #f3f6fa;
+  }
+
+  .tab-button {
+      flex: 0 0 auto;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 10px;
+      color: #41536b;
+      background: transparent;
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 600;
+      text-align: center;
+      white-space: nowrap;
+      transition:
+          background-color 0.2s ease,
+          color 0.2s ease,
+          transform 0.2s ease;
+  }
+
+  .tab-button:hover {
+      background: #e6edf7;
+  }
+
+  .tab-button:active {
+      transform: scale(0.97);
+  }
+
+  .tab-button.active {
+      color: #ffffff;
+      background: #1967d2;
+      border: none;
+      box-shadow:
+          0 5px 14px
+          rgba(25, 103, 210, 0.25);
+  }
+
+  .config-section {
+      margin-bottom: 0;
+      padding: 24px;
+      border: 1px solid #e4eaf1;
+      border-radius: 14px;
+      background: #ffffff;
+  }
+
+  h2 {
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e6ebf1;
+      font-size: 22px;
+      line-height: 1.35;
+  }
+
+  h3 {
+      font-size: 16px;
+  }
+
+  .form-group {
+      margin-bottom: 18px;
+  }
+
+  label {
+      margin-bottom: 8px;
+      color: #44546a;
+      font-size: 14px;
+      line-height: 1.4;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  textarea,
+  select {
+      width: 100% !important;
+      max-width: none !important;
+      min-height: 44px;
+      padding: 10px 12px !important;
+      border: 1px solid #ccd5df !important;
+      border-radius: 9px !important;
+      background: #ffffff;
+      color: #25313f;
+      font-size: 15px !important;
+      line-height: 1.4;
+      outline: none;
+      transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease;
+  }
+
+  textarea {
+      min-height: 200px;
+      resize: vertical;
+  }
+
+  input[type="text"]:focus,
+  input[type="password"]:focus,
+  textarea:focus,
+  select:focus {
+      border-color: #1967d2 !important;
+      box-shadow:
+          0 0 0 3px
+          rgba(25, 103, 210, 0.12);
+  }
+
+  button[type="submit"],
+  #xiaolan-test-btn {
+      width: 100% !important;
+      min-height: 46px;
+      padding: 11px 16px !important;
+      border: none !important;
+      border-radius: 10px !important;
+      font-size: 15px !important;
+      font-weight: 600;
+      cursor: pointer;
+  }
+
+  button[type="submit"] {
+      margin-top: 20px !important;
+      background: #1f8f4e;
+      color: #ffffff;
+  }
+
+  button[type="submit"]:hover {
+      background: #187a41;
+  }
+
+  #xiaolan-test-btn {
+      margin-top: 10px !important;
+      background: #1967d2 !important;
+      color: #ffffff !important;
+  }
+
+  #xiaolan-test-result {
+      border-radius: 10px !important;
+      line-height: 1.5;
+  }
+
+  #log_output {
+      width: 100%;
+      max-width: 100%;
+      min-height: 180px;
+      margin: 0;
+      overflow-x: auto;
+      overflow-y: auto;
+      white-space: pre;
+      word-break: normal;
+      font-size: 13px;
+      line-height: 1.55;
+  }
+
+  .config-section form > div[
+      style*="display: flex"
+  ] {
+      gap: 12px;
+      flex-wrap: wrap;
+  }
+
+  @media (
+      max-width: 680px
+  ) {
+      body {
+          padding: 10px;
+      }
+
+      .container {
+          padding: 16px;
+          border-radius: 14px;
+          box-shadow:
+              0 6px 22px
+              rgba(0, 0, 0, 0.07);
+      }
+
+      h1 {
+          margin-bottom: 18px;
+          font-size: 23px;
+          text-align: left;
+      }
+
+      h1 span {
+          font-size: 14px;
+      }
+
+      .tabs {
+          display: grid;
+          grid-template-columns:
+              repeat(
+                  3,
+                  minmax(0, 1fr)
+              );
+          gap: 7px;
+          padding: 7px;
+          margin-bottom: 16px;
+      }
+
+      .tab-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          padding: 8px 5px;
+          border-radius: 9px;
+          font-size: 13px;
+          line-height: 1.15;
+          white-space: nowrap;
+      }
+
+      .tabs .tab-button:last-child {
+          grid-column: 1 / -1;
+      }
+
+      .config-section {
+          padding: 16px;
+          border-radius: 12px;
+      }
+
+      h2 {
+          margin-bottom: 16px;
+          padding-bottom: 10px;
+          font-size: 19px;
+      }
+
+      h3 {
+          font-size: 15px;
+      }
+
+      .form-group {
+          margin-bottom: 15px;
+      }
+
+      label {
+          font-size: 14px;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      textarea,
+      select {
+          min-height: 46px;
+          font-size: 16px !important;
+      }
+
+      textarea {
+          min-height: 220px;
+      }
+
+      button[type="submit"],
+      #xiaolan-test-btn {
+          min-height: 48px;
+          font-size: 15px !important;
+      }
+
+      .config-section form > div[
+          style*="display: flex"
+      ] {
+          display: block !important;
+      }
+
+      .config-section form > div[
+          style*="display: flex"
+      ] h2 {
+          width: 100%;
+      }
+
+      .config-section form > div[
+          style*="display: flex"
+      ] button {
+          width: 100% !important;
+          margin:
+              0 0 16px
+              !important;
+      }
+
+      #log_output {
+          max-height: 360px !important;
+          padding: 12px !important;
+          border-radius: 9px !important;
+          font-size: 12px;
+      }
+  }
+
+  @media (
+      max-width: 380px
+  ) {
+      .tabs {
+          grid-template-columns:
+              repeat(
+                  2,
+                  minmax(0, 1fr)
+              );
+      }
+
+      .tabs .tab-button:last-child {
+          grid-column: 1 / -1;
+      }
+
+      .tab-button {
+          font-size: 12.5px;
+      }
+  }
+
+  /* MOBILE_UI_V1_END */
+
+</style>
 </head>
 <body>
     <div class="container">
-        <h1>DouyinLiveRecorder Configuration</h1>
+        <h1>DouyinLiveRecorder <span>配置中心</span></h1>
         <div class="tabs">
                 <a href="{{ url_for('home_page') }}" class="tab-button {% if active_tab == 'home' %}active{% endif %}">首页</a>
                 <a href="{{ url_for('url_config_page') }}" class="tab-button {% if active_tab == 'url_config' %}active{% endif %}">URL 配置</a>
