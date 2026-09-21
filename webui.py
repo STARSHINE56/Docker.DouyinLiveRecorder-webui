@@ -150,16 +150,126 @@ def parse_monitor_lines():
 
 
 def classify_status(text):
+    """Classify one log line without treating counters or negations as activity."""
     lower = text.lower()
-    if any(k in text for k in ("正在录制", "开始录制", "录制中")):
-        return "recording", "正在录制"
-    if any(k in text for k in ("检测到", "开始直播", "已开播", "直播中")):
-        return "live", "直播中"
-    if any(k in text for k in ("等待直播", "未开播", "未直播")):
+
+    # Negative meanings must win before positive keywords.  Several of these
+    # lines contain "正在录制" or "直播中" as part of a negative/statistical
+    # sentence, so checking positive words first causes false activity.
+    if any(k in text for k in (
+        "没有正在监测和录制的直播",
+        "没有正在录制的直播",
+        "没有正在录制",
+        "等待直播",
+        "未开播",
+        "未直播",
+        "直播未开始",
+    )):
         return "waiting", "等待直播"
+
+    # This is a global task count, not the state of an individual anchor.
+    if re.search(r"共监测\s*\d+\s*个直播中", text):
+        return None
+
+    # "准备开始录制" is preparation rather than proof that recording started.
+    if "准备开始录制" in text:
+        return None
+
+    if any(k in text for k in ("正在录制中", "已经开始录制", "已开始录制", "开始录制")):
+        return "recording", "正在录制"
+    if any(k in text for k in ("开始直播", "已开播", "正在直播中")):
+        return "live", "直播中"
     if any(k in text for k in ("获取失败", "连接失败", "错误信息", "异常")) or "error" in lower:
         return "error", "异常"
     return None
+
+
+def extract_status_anchor(line):
+    """Return an anchor only when the line has a real per-anchor status shape."""
+    status_words = (
+        r"等待直播|未开播|未直播|直播已结束|关播|"
+        r"正在直播中|已开播|开始直播|"
+        r"正在录制中|已经开始录制|已开始录制|开始录制"
+    )
+    patterns = (
+        rf"主播\s*[:：]\s*([^,，|\r\n]+?)\s+(?:{status_words})",
+        rf"序号\d+\s+([^|,，\r\n\[]+?)(?:\[[^\]]+\])?\s+(?:{status_words})",
+        r"(?:^|\s-\s)([^|,，\r\n]+?)\[[^\]]+\]\s+正在录制中",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, line)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def status_applies_to_monitor(line, item, state):
+    """Require positive states to be backed by a structured anchor log."""
+    if item["url"] and item["url"] in line:
+        return True
+
+    anchor = extract_status_anchor(line)
+    if anchor and item["name"] not in ("等待获取主播名", "待识别主播"):
+        return anchor == item["name"]
+
+    # A manually entered name appearing in arbitrary text is not live proof.
+    # Errors may still be associated by URL above; uncertain lines are ignored.
+    return False
+
+
+def summarize_event(line):
+    """Create a concise event only from explicit, non-statistical log lines."""
+    ts = re.search(
+        r"(20\d\d[-/]\d\d[-/]\d\d[ T](\d\d:\d\d:\d\d))",
+        line
+    )
+    time_text = ts.group(2) if ts else ""
+    anchor = extract_status_anchor(line)
+    state = classify_status(line)
+
+    if state and state[0] in ("live", "recording", "waiting"):
+        # Global/ambiguous lines never become per-anchor recent events.
+        if not anchor:
+            return None
+        action = {
+            "live": "检测到开播",
+            "recording": "开始录制",
+            "waiting": "等待直播",
+        }[state[0]]
+        return {
+            "summary": " · ".join(x for x in (time_text, anchor, action) if x),
+            "key": (anchor, state[0]),
+            "anchor": anchor,
+            "state": state[0],
+        }
+
+    if "直播已结束" in line or "关播" in line:
+        if not anchor:
+            return None
+        action = "直播结束"
+        event_state = "waiting"
+    elif "上传" in line and any(k in line for k in ("成功", "完成")):
+        action, event_state = "上传完成", "upload_done"
+    elif "上传" in line and any(k in line for k in ("失败", "异常")):
+        action, event_state = "上传失败", "upload_failed"
+    elif "推送" in line and any(k in line for k in ("成功", "完成")):
+        action, event_state = "推送成功", "push_done"
+    elif "推送" in line and any(k in line for k in ("失败", "异常")):
+        action, event_state = "推送失败", "push_failed"
+    elif "错误" in line or "异常" in line or "失败" in line:
+        action, event_state = "检测异常", "error"
+    elif "WebUI启动" in line:
+        action, event_state = "WebUI 已启动", "webui_started"
+    else:
+        return None
+
+    subject = anchor or "系统"
+    return {
+        "summary": " · ".join(x for x in (time_text, anchor, action) if x),
+        "key": (subject, event_state),
+        "anchor": subject,
+        "state": event_state,
+    }
 
 
 def get_monitor_snapshot():
@@ -167,14 +277,11 @@ def get_monitor_snapshot():
     logs = read_log_lines(500)
 
     for item in items:
-        keys = [item["name"], item["url"]]
         for line in reversed(logs):
-            if not any(k and k not in ("等待获取主播名", "待识别主播") and k in line for k in keys):
-                continue
             state = classify_status(line)
-            if state:
+            if state and status_applies_to_monitor(line, item, state[0]):
                 item["status"], item["status_text"] = state
-                ts = re.search(r"(20\\d\\d[-/]\\d\\d[-/]\\d\\d[ T]\\d\\d:\\d\\d:\\d\\d)", line)
+                ts = re.search(r"(20\d\d[-/]\d\d[-/]\d\d[ T]\d\d:\d\d:\d\d)", line)
                 if ts:
                     item["updated_at"] = ts.group(1).replace("/", "-")
                 break
@@ -187,61 +294,30 @@ def get_monitor_snapshot():
         "error": sum(i["status"] == "error" for i in items),
     }
 
-    def summarize_event(line):
-        ts = re.search(
-            r"(20\d\d[-/]\d\d[-/]\d\d[ T](\d\d:\d\d:\d\d))",
-            line
-        )
-        time_text = ts.group(2) if ts else ""
+    # Process oldest-to-newest so only real state transitions survive. Repeated
+    # polling lines for the same anchor/state no longer flood "最近事件".
+    event_records = []
+    last_state = {}
+    seen_non_state = set()
+    state_names = {"waiting", "live", "recording"}
 
-        anchor = ""
-        anchor_match = re.search(
-            r"(?:主播\s*[:：]\s*|序号\d+\s+)([^|,，\s]+)",
-            line
-        )
-        if anchor_match:
-            anchor = anchor_match.group(1).strip()
-
-        if "正在录制" in line or "开始录制" in line:
-            action = "开始录制"
-        elif "直播已结束" in line or "关播" in line:
-            action = "直播结束"
-        elif "等待直播" in line:
-            action = "等待直播"
-        elif "上传" in line and any(k in line for k in ("成功", "完成")):
-            action = "上传完成"
-        elif "上传" in line and any(k in line for k in ("失败", "异常")):
-            action = "上传失败"
-        elif "推送" in line and any(k in line for k in ("成功", "完成")):
-            action = "推送成功"
-        elif "推送" in line and any(k in line for k in ("失败", "异常")):
-            action = "推送失败"
-        elif "直播中" in line or "已开播" in line:
-            action = "检测到开播"
-        elif "错误" in line or "异常" in line or "失败" in line:
-            action = "检测异常"
-        elif "WebUI启动" in line:
-            action = "WebUI 已启动"
-        else:
-            return ""
-
-        parts = [x for x in (time_text, anchor, action) if x]
-        return " · ".join(parts)
-
-    events = []
-    seen = set()
-
-    for line in reversed(logs):
-        summary = summarize_event(line)
-
-        if not summary or summary in seen:
+    for line in logs:
+        event = summarize_event(line)
+        if not event:
             continue
 
-        seen.add(summary)
-        events.append(summary)
+        if event["state"] in state_names:
+            if last_state.get(event["anchor"]) == event["state"]:
+                continue
+            last_state[event["anchor"]] = event["state"]
+        elif event["key"] in seen_non_state:
+            continue
+        else:
+            seen_non_state.add(event["key"])
 
-        if len(events) >= 8:
-            break
+        event_records.append(event["summary"])
+
+    events = list(reversed(event_records[-8:]))
 
     return {
         "service_running": recording_process is not None and recording_process.poll() is None,
