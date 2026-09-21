@@ -225,6 +225,7 @@ def segment_video(converts_file_path: str, segment_save_file_path: str, segment_
 def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> None:
     try:
         if os.path.exists(converts_file_path) and os.path.getsize(converts_file_path) > 0:
+            output_file_path = converts_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
             if converts_to_h264:
                 color_obj.print_colored(f"正在转码为MP4格式并重新编码为h264\n", color_obj.YELLOW)
                 ffmpeg_command = [
@@ -234,7 +235,7 @@ def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> No
                     "-crf", "23",
                     "-vf", "format=yuv420p",
                     "-c:a", "copy",
-                    "-f", "mp4", converts_file_path.rsplit('.', maxsplit=1)[0] + ".mp4",
+                    "-f", "mp4", output_file_path,
                 ]
             else:
                 color_obj.print_colored(f"正在转码为MP4格式\n", color_obj.YELLOW)
@@ -242,11 +243,23 @@ def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> No
                     "ffmpeg", "-i", converts_file_path,
                     "-c:v", "copy",
                     "-c:a", "copy",
-                    "-f", "mp4", converts_file_path.rsplit('.', maxsplit=1)[0] + ".mp4",
+                    "-f", "mp4", output_file_path,
                 ]
-            _output = subprocess.check_output(
-                ffmpeg_command, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
-            )
+            try:
+                subprocess.check_output(
+                    ffmpeg_command, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
+                )
+            except subprocess.CalledProcessError:
+                logger.warning("MP4 音频直拷贝失败，改用 AAC 进行一次安全重试")
+                if os.path.exists(output_file_path):
+                    os.remove(output_file_path)
+                fallback_command = ffmpeg_command.copy()
+                audio_codec_index = fallback_command.index("-c:a") + 1
+                fallback_command[audio_codec_index] = "aac"
+                fallback_command[audio_codec_index + 1:audio_codec_index + 1] = ["-b:a", "192k"]
+                subprocess.check_output(
+                    fallback_command, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
+                )
             if is_original_delete:
                 time.sleep(1)
                 if os.path.exists(converts_file_path):
@@ -565,6 +578,14 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                     proxy_addr=proxy_address,
                                     cookies=dy_cookie))
                             port_info = asyncio.run(stream.get_douyin_stream_url(json_data, record_quality))
+                            if port_info.get('is_live'):
+                                m3u8_url = port_info.get('m3u8_url')
+                                flv_url = port_info.get('flv_url')
+                                selected_url = stream.select_douyin_record_url(m3u8_url, flv_url)
+                                port_info['record_url'] = selected_url
+                                port_info['record_url_source'] = (
+                                    'flv' if selected_url and selected_url == flv_url else 'm3u8'
+                                )
 
                     elif record_url.find("https://www.tiktok.com/") > -1:
                         platform = 'TikTok直播'
@@ -1203,7 +1224,11 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                     try:
                                         flv_url = port_info.get('flv_url')
                                         flv_recorded = False
-                                        if flv_url:
+                                        use_direct_flv = bool(flv_url)
+                                        if platform == '抖音直播' and port_info.get('record_url_source') != 'flv':
+                                            use_direct_flv = False
+
+                                        if use_direct_flv:
                                             flv_recorded = runtime_status.run_direct_recording(
                                                 record_url,
                                                 anchor_name,
@@ -1217,6 +1242,27 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                     f"\n{anchor_name} {time.strftime('%Y-%m-%d %H:%M:%S')} 直播录制完成\n")
                                             else:
                                                 logger.warning(f"[{anchor_name}] 已有活动录制任务，跳过重复 FLV 启动")
+                                        elif real_url:
+                                            logger.info(f"[{anchor_name}] FLV 源无可用音轨，改用已选中的有声源封装为 FLV")
+                                            flv_ffmpeg_command = ffmpeg_command.copy()
+                                            flv_ffmpeg_command.extend([
+                                                "-map", "0",
+                                                "-c:v", "copy",
+                                                "-c:a", "copy",
+                                                "-f", "flv",
+                                                save_file_path,
+                                            ])
+                                            check_subprocess(
+                                                record_name,
+                                                record_url,
+                                                flv_ffmpeg_command,
+                                                video_save_type,
+                                                custom_script,
+                                            )
+                                            flv_recorded = (
+                                                os.path.exists(save_file_path)
+                                                and os.path.getsize(save_file_path) > 0
+                                            )
                                         else:
                                             logger.debug("未找到FLV直播流，跳过录制")
                                     except Exception as e:
