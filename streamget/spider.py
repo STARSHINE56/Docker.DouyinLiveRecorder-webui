@@ -25,7 +25,7 @@ import urllib.request
 from . import JS_SCRIPT_PATH, utils
 from .utils import trace_error_decorator
 from .logger import script_path
-from .room import get_sec_user_id, get_unique_id
+from .room import get_sec_user_id, get_unique_id, resolve_douyin_profile, fetch_douyin_user_page
 from .http_clients.async_http import async_req
 
 
@@ -91,9 +91,20 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
         return room_data2
 
     try:
-        web_rid = url.split('?')[0].split('live.douyin.com/')
-        if len(web_rid) > 1:
-            web_rid = web_rid[1]
+        profile_headers = dict(headers)
+        profile = await resolve_douyin_profile(url, proxy_addr=proxy_addr, headers=profile_headers)
+        nickname = profile.get("nickname", "")
+        if profile.get("is_live") is False:
+            return {
+                "anchor_name": nickname,
+                "status": 4,
+                "is_live": False,
+                "sec_user_id": profile.get("sec_user_id"),
+                "web_rid": profile.get("web_rid"),
+            }
+
+        web_rid = profile.get("web_rid")
+        if web_rid:
             params = {
                 "aid": "6383",
                 "app_name": "douyin_web",
@@ -110,17 +121,29 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
             api = f'https://live.douyin.com/webcast/room/web/enter/?{urllib.parse.urlencode(params)}'
             json_str = await async_req(url=api, proxy_addr=proxy_addr, headers=headers)
             json_data = json.loads(json_str)['data']
-            room_data = json_data['data'][0]
-            room_data['anchor_name'] = json_data['user']['nickname']
+            rooms = json_data.get('data') or []
+            if not rooms:
+                offline_name = (json_data.get('user') or {}).get('nickname') or nickname
+                if not offline_name:
+                    offline_name = (await fetch_douyin_user_page(
+                        url, proxy_addr=proxy_addr, headers=profile_headers
+                    )).get("nickname", "")
+                return {"anchor_name": offline_name, "status": 4, "is_live": False, "web_rid": web_rid}
+            room_data = rooms[0]
+            room_data['anchor_name'] = json_data.get('user', {}).get('nickname') or nickname
         else:
-            data = await get_sec_user_id(url, proxy_addr=proxy_addr)
+            room_id = profile.get("room_id")
+            sec_uid = profile.get("sec_user_id")
+            data = (room_id, sec_uid) if room_id and sec_uid else await get_sec_user_id(url, proxy_addr=proxy_addr)
 
             if data:
                 _room_id, _sec_uid = data
                 room_data = await get_app_data(_room_id, _sec_uid)
             else:
                 unique_id = await get_unique_id(url, proxy_addr=proxy_addr)
-                return await get_douyin_stream_data(f'https://live.douyin.com/{unique_id}')
+                if unique_id:
+                    return await get_douyin_stream_data(f'https://live.douyin.com/{unique_id}')
+                raise RuntimeError("无法解析抖音主播主页")
 
         if room_data['status'] == 2:
             if 'stream_url' not in room_data:

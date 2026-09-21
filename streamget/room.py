@@ -12,10 +12,156 @@ import urllib.parse
 import execjs
 import httpx
 import urllib.request
+import asyncio
+import json
 from . import JS_SCRIPT_PATH, utils
 
 no_proxy_handler = urllib.request.ProxyHandler({})
 opener = urllib.request.build_opener(no_proxy_handler)
+
+_SHORT_URL_CACHE: dict[str, dict] = {}
+_SEC_ID_RE = re.compile(r"MS4wLj[A-Za-z0-9_-]+")
+
+
+def extract_douyin_identifiers(value: str) -> dict:
+    """Extract stable Douyin identifiers without depending on page layout."""
+    raw = (value or "").strip()
+    result = {"web_rid": None, "room_id": None, "sec_user_id": None, "unique_id": None}
+    live = re.search(r"live\.douyin\.com/([^/?#]+)", raw)
+    reflow = re.search(r"/reflow/(\d{8,25})", raw)
+    user = re.search(r"douyin\.com/(?:user|share/user)/([A-Za-z0-9._-]+)", raw)
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query)
+    if live:
+        result["web_rid"] = live.group(1)
+    if reflow:
+        result["room_id"] = reflow.group(1)
+    if user:
+        user_value = user.group(1)
+        if user_value.startswith("MS4wLj"):
+            result["sec_user_id"] = user_value
+        else:
+            result["unique_id"] = user_value
+    elif query.get("sec_user_id"):
+        result["sec_user_id"] = query["sec_user_id"][0]
+    elif _SEC_ID_RE.fullmatch(raw):
+        result["sec_user_id"] = raw
+    elif re.fullmatch(r"[A-Za-z0-9._-]{2,40}", raw) and not raw.isdigit():
+        result["unique_id"] = raw
+    elif raw.isdigit():
+        result["web_rid"] = raw
+    return result
+
+
+async def resolve_douyin_short_url(url: str, proxy_addr: str | None = None,
+                                   headers: dict | None = None) -> dict:
+    """Resolve v.douyin via HEAD, then a redirect-following GET fallback."""
+    if url in _SHORT_URL_CACHE:
+        return dict(_SHORT_URL_CACHE[url])
+    headers = headers or HEADERS
+    proxy_addr = utils.handle_proxy_addr(proxy_addr)
+    final_url = ""
+    async with httpx.AsyncClient(proxy=proxy_addr, timeout=15, follow_redirects=False) as client:
+        try:
+            response = await client.head(url, headers=headers)
+            final_url = response.headers.get("location", "")
+        except httpx.HTTPError:
+            pass
+        if not final_url or not any(host in final_url for host in ("live.douyin.com", "webcast.amemv.com", "douyin.com/user")):
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            response.raise_for_status()
+            final_url = str(response.url)
+    identifiers = extract_douyin_identifiers(final_url)
+    identifiers["resolved_url"] = final_url.split("?", 1)[0]
+    # The query is deliberately parsed before tracking parameters are removed.
+    _SHORT_URL_CACHE[url] = dict(identifiers)
+    return identifiers
+
+
+async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = None,
+                                    headers: dict | None = None, retries: int = 3) -> dict:
+    """Fetch nickname and live metadata from the stable web profile endpoint."""
+    headers = headers or HEADERS_PC
+    params = {"device_platform": "webapp", "aid": "6383", "sec_user_id": sec_user_id}
+    api = "https://www.douyin.com/aweme/v1/web/user/profile/other/"
+    proxy_addr = utils.handle_proxy_addr(proxy_addr)
+    last_error = None
+    async with httpx.AsyncClient(proxy=proxy_addr, timeout=15) as client:
+        for attempt in range(retries):
+            try:
+                response = await client.get(api, params=params, headers=headers)
+                response.raise_for_status()
+                user = (response.json().get("user") or {})
+                room_data = user.get("room_data") or {}
+                if isinstance(room_data, str):
+                    room_data = json.loads(room_data) if room_data.strip() else {}
+                web_rid = (room_data.get("owner") or {}).get("web_rid") or room_data.get("web_rid")
+                web_rid = web_rid or user.get("web_rid_str") or user.get("web_rid")
+                avatar_urls = (user.get("avatar_thumb") or {}).get("url_list") or []
+                return {
+                    "sec_user_id": sec_user_id,
+                    "nickname": (user.get("nickname") or "").strip(),
+                    "avatar": avatar_urls[0] if avatar_urls else "",
+                    "room_id": str(room_data.get("id_str") or room_data.get("id") or "") or None,
+                    "web_rid": str(web_rid) if web_rid else None,
+                    "is_live": room_data.get("status") == 2,
+                }
+            except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt + 1 < retries:
+                    await asyncio.sleep(0.5)
+    raise RuntimeError(f"抖音主播资料接口请求失败: {last_error}")
+
+
+async def fetch_douyin_user_page(value: str, proxy_addr: str | None = None,
+                                 headers: dict | None = None) -> dict:
+    """Page fallback for profile API changes or transient rejection."""
+    page_url = value if value.startswith("http") else f"https://www.douyin.com/user/{urllib.parse.quote(value)}"
+    proxy = utils.handle_proxy_addr(proxy_addr)
+    async with httpx.AsyncClient(proxy=proxy, timeout=15, follow_redirects=True) as client:
+        response = await client.get(page_url, headers=headers or HEADERS_PC)
+        response.raise_for_status()
+        html = response.text
+    sec_matches = _SEC_ID_RE.findall(html)
+    nickname_match = re.search(r'(?:\\?")nickname(?:\\?")\s*:\s*(?:\\?")([^"\\,}]+)', html)
+    web_match = re.search(r'(?:\\?")web_rid(?:\\?")\s*:\s*(?:\\?")?(\d+)', html)
+    status_match = re.search(r'(?:\\?")status(?:\\?")\s*:\s*(\d+)', html)
+    return {
+        "sec_user_id": sec_matches[0] if sec_matches else None,
+        "nickname": nickname_match.group(1) if nickname_match else "",
+        "web_rid": web_match.group(1) if web_match else None,
+        "is_live": status_match.group(1) == "2" if status_match else False,
+    }
+
+
+async def resolve_douyin_profile(value: str, proxy_addr: str | None = None,
+                                 headers: dict | None = None) -> dict:
+    """Resolve live/user/share/short/sec-id/unique-id inputs to one profile shape."""
+    raw = (value or "").strip()
+    identifiers = extract_douyin_identifiers(raw)
+    if "v.douyin.com" in raw:
+        identifiers.update({k: v for k, v in (await resolve_douyin_short_url(
+            raw, proxy_addr, headers
+        )).items() if v})
+    if identifiers.get("web_rid"):
+        return {**identifiers, "nickname": "", "is_live": None}
+    sec_user_id = identifiers.get("sec_user_id")
+    if not sec_user_id and identifiers.get("unique_id"):
+        fallback = await fetch_douyin_user_page(identifiers["unique_id"], proxy_addr, headers)
+        sec_user_id = fallback.get("sec_user_id")
+        if not sec_user_id:
+            return {**identifiers, **fallback}
+    if sec_user_id:
+        try:
+            profile = await fetch_douyin_user_profile(sec_user_id, proxy_addr, headers)
+        except Exception:
+            profile = await fetch_douyin_user_page(
+                f"https://www.douyin.com/user/{sec_user_id}", proxy_addr, headers
+            )
+            profile["sec_user_id"] = sec_user_id
+        return {**identifiers, **profile}
+    if identifiers.get("room_id"):
+        return {**identifiers, "nickname": "", "is_live": None}
+    raise ValueError(f"无法识别抖音地址或账号: {raw}")
 
 
 HEADERS = {
