@@ -63,3 +63,86 @@ class DouyinResolveTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DouyinProfileEmptyAndFallbackTests(unittest.IsolatedAsyncioTestCase):
+    """Regression: empty profile API must not be treated as success."""
+
+    async def test_profile_api_empty_user_triggers_page_fallback(self):
+        page = {
+            "sec_user_id": "MS4wLjABAAAA_empty",
+            "nickname": "页面兜底",
+            "web_rid": "999001",
+            "is_live": False,
+        }
+
+        async def empty_profile(*_a, **_k):
+            raise room.EmptyDouyinProfileError("empty user")
+
+        with patch.object(room, "fetch_douyin_user_profile", AsyncMock(side_effect=empty_profile)), patch.object(
+            room, "fetch_douyin_user_page", AsyncMock(return_value=page)
+        ):
+            value = await room.resolve_douyin_profile("https://www.douyin.com/user/MS4wLjABAAAA_empty")
+        self.assertEqual(value["nickname"], "页面兜底")
+        self.assertEqual(value["web_rid"], "999001")
+
+    async def test_profile_api_blank_core_fields_triggers_fallback(self):
+        page = {
+            "sec_user_id": "MS4wLjABAAAA_blank",
+            "nickname": "空白字段兜底",
+            "web_rid": "888002",
+            "is_live": False,
+        }
+        with patch.object(
+            room, "fetch_douyin_user_profile",
+            AsyncMock(side_effect=room.EmptyDouyinProfileError("missing core fields")),
+        ), patch.object(room, "fetch_douyin_user_page", AsyncMock(return_value=page)):
+            value = await room.resolve_douyin_profile("MS4wLjABAAAA_blank")
+        self.assertEqual(value["nickname"], "空白字段兜底")
+        self.assertEqual(value["web_rid"], "888002")
+
+    async def test_live_douyin_url_does_not_force_profile_resolver(self):
+        # web_rid path must short-circuit without calling profile API
+        with patch.object(room, "fetch_douyin_user_profile", AsyncMock()) as profile_mock, patch.object(
+            room, "fetch_douyin_user_page", AsyncMock()
+        ) as page_mock:
+            value = await room.resolve_douyin_profile("https://live.douyin.com/123456789")
+        self.assertEqual(value["web_rid"], "123456789")
+        profile_mock.assert_not_called()
+        page_mock.assert_not_called()
+
+    async def test_user_profile_url_success_returns_valid_info(self):
+        profile = {
+            "sec_user_id": "MS4wLjABAAAA_ok",
+            "nickname": "正常主播",
+            "web_rid": "777003",
+            "room_id": "100200300",
+            "is_live": True,
+        }
+        with patch.object(room, "fetch_douyin_user_profile", AsyncMock(return_value=profile)):
+            value = await room.resolve_douyin_profile("https://www.douyin.com/user/MS4wLjABAAAA_ok")
+        self.assertEqual(value["nickname"], "正常主播")
+        self.assertEqual(value["web_rid"], "777003")
+        self.assertTrue(value["is_live"])
+
+    async def test_resolver_failure_still_allows_old_spider_path(self):
+        """New resolver is an enhancement; old get_sec_user_id path must remain reachable."""
+        # Ensure old helpers are still importable and callable from room
+        self.assertTrue(callable(room.get_sec_user_id))
+        self.assertTrue(callable(room.get_unique_id))
+        self.assertTrue(callable(room.get_live_room_id))
+        # spider still imports them for the legacy path
+        from streamget.room import get_sec_user_id, get_unique_id, get_live_room_id
+        self.assertIs(room.get_sec_user_id, get_sec_user_id)
+
+
+class DouyinProfileHasCoreInfoTests(unittest.TestCase):
+    def test_empty_profile_rejected(self):
+        self.assertFalse(room._profile_has_core_info({}))
+        self.assertFalse(room._profile_has_core_info({"nickname": "", "web_rid": None, "room_id": None}))
+
+    def test_any_core_field_accepted(self):
+        self.assertTrue(room._profile_has_core_info({"nickname": "A"}))
+        self.assertTrue(room._profile_has_core_info({"sec_user_id": "MS4wLj"}))
+        self.assertTrue(room._profile_has_core_info({"web_rid": "1"}))
+        self.assertTrue(room._profile_has_core_info({"room_id": "2"}))

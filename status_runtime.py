@@ -206,11 +206,24 @@ def update_live_status(url: str, name: str, is_live: bool, *, stream_valid: bool
 
 
 def mark_check_failed(url: str, name: str, error: str) -> None:
+    """Record a failed detection pass.
+
+    When the check itself failed and there is no evidence of an active
+    recording process, clear any stale live_status so the UI cannot keep
+    showing "直播中" after a parse/API error.
+    """
     with _locked_state() as state:
         item = _monitor(state, url, name)
         item["monitor_status"] = "error"
         item["last_checked_at"] = _now()
         item["last_error"] = str(error)[:500]
+        # Only clear live evidence when we do not currently have a real
+        # recording task.  Active / recovering recordings keep their state
+        # until the process finishes or reconcile_stale_recordings runs.
+        recording = item.get("recording_status")
+        if recording not in {"starting", "recording", "recovering", "stopping"}:
+            item["live_status"] = "unknown"
+            item["offline_confirmations"] = 0
         _emit_locked(state, item, "CHECK_FAILED", "直播状态检测失败", once_per_session=False)
 
 

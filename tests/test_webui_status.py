@@ -138,6 +138,46 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertIsNone(item["recording_pid"])
 
 
+
+    def test_check_failed_clears_stale_live_status(self):
+        """Detection failure must not leave live_status=live when no recording runs."""
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["live_status"], "live")
+
+        status_runtime.mark_check_failed(self.url, self.name, "直播 API 未返回主播信息")
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["monitor_status"], "error")
+        self.assertEqual(item["live_status"], "unknown")
+        self.assertIn("直播 API 未返回主播信息", item["last_error"])
+
+    def test_check_failed_preserves_live_while_recording(self):
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_recording_started(self.url, self.name, 12345, "/tmp/a.mp4")
+        status_runtime.mark_check_failed(self.url, self.name, "transient api error")
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["monitor_status"], "error")
+        self.assertEqual(item["live_status"], "live")
+        self.assertEqual(item["recording_status"], "recording")
+
+    def test_recheck_success_after_error_restores_waiting_or_live(self):
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_check_failed(self.url, self.name, "parse failed")
+        # Recover to offline / waiting
+        status_runtime.update_live_status(self.url, self.name, False, stream_valid=False)
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["monitor_status"], "running")
+        self.assertIn(item["live_status"], {"offline", "suspected_offline"})
+        self.assertIsNone(item["last_error"])
+
+        # Recover to live again
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["live_status"], "live")
+        self.assertEqual(item["monitor_status"], "running")
+        self.assertIsNone(item["last_error"])
+
+
 class WebUiSmokeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

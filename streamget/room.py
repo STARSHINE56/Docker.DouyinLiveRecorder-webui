@@ -77,9 +77,31 @@ async def resolve_douyin_short_url(url: str, proxy_addr: str | None = None,
     return identifiers
 
 
+class EmptyDouyinProfileError(RuntimeError):
+    """Profile API returned HTTP 200 but no usable anchor identifiers."""
+
+
+def _profile_has_core_info(profile: dict) -> bool:
+    """True when at least one stable identifier or nickname is present."""
+    if (profile.get("nickname") or "").strip():
+        return True
+    if profile.get("sec_user_id"):
+        return True
+    if profile.get("web_rid"):
+        return True
+    if profile.get("room_id"):
+        return True
+    return False
+
+
 async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = None,
                                     headers: dict | None = None, retries: int = 3) -> dict:
-    """Fetch nickname and live metadata from the stable web profile endpoint."""
+    """Fetch nickname and live metadata from the stable web profile endpoint.
+
+    HTTP 200 with an empty / incomplete user object is treated as failure so
+    callers fall back to page parsing instead of treating an empty profile as
+    success.
+    """
     headers = headers or HEADERS_PC
     params = {"device_platform": "webapp", "aid": "6383", "sec_user_id": sec_user_id}
     api = "https://www.douyin.com/aweme/v1/web/user/profile/other/"
@@ -90,14 +112,19 @@ async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = N
             try:
                 response = await client.get(api, params=params, headers=headers)
                 response.raise_for_status()
-                user = (response.json().get("user") or {})
+                payload = response.json()
+                user = (payload.get("user") or {})
+                if not user:
+                    raise EmptyDouyinProfileError(
+                        f"抖音主播资料接口返回空 user: sec_user_id={sec_user_id}"
+                    )
                 room_data = user.get("room_data") or {}
                 if isinstance(room_data, str):
                     room_data = json.loads(room_data) if room_data.strip() else {}
                 web_rid = (room_data.get("owner") or {}).get("web_rid") or room_data.get("web_rid")
                 web_rid = web_rid or user.get("web_rid_str") or user.get("web_rid")
                 avatar_urls = (user.get("avatar_thumb") or {}).get("url_list") or []
-                return {
+                profile = {
                     "sec_user_id": sec_user_id,
                     "nickname": (user.get("nickname") or "").strip(),
                     "avatar": avatar_urls[0] if avatar_urls else "",
@@ -105,31 +132,103 @@ async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = N
                     "web_rid": str(web_rid) if web_rid else None,
                     "is_live": room_data.get("status") == 2,
                 }
-            except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+                if not _profile_has_core_info(profile):
+                    raise EmptyDouyinProfileError(
+                        f"抖音主播资料接口缺少核心字段: sec_user_id={sec_user_id}"
+                    )
+                return profile
+            except EmptyDouyinProfileError:
+                raise
+            except (httpx.HTTPError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
                 last_error = exc
                 if attempt + 1 < retries:
                     await asyncio.sleep(0.5)
     raise RuntimeError(f"抖音主播资料接口请求失败: {last_error}")
 
 
+def _extract_from_page_json(html: str) -> dict:
+    """Prefer structured hydration / RENDER_DATA JSON over brittle regexes."""
+    result = {
+        "sec_user_id": None,
+        "unique_id": None,
+        "nickname": "",
+        "web_rid": None,
+        "room_id": None,
+        "is_live": False,
+    }
+    candidates: list[str] = []
+    # Common Douyin page embeds
+    for pattern in (
+        r'<script[^>]*id="RENDER_DATA"[^>]*>(.*?)</script>',
+        r'<script[^>]*>window\._SSR_HYDRATED_DATA\s*=\s*(\{.*?\})</script>',
+        r'<script[^>]*>window\.__INIT_PROPS__\s*=\s*(\{.*?\})</script>',
+        r'"userInfo"\s*:\s*(\{.*?\})\s*,\s*"',
+    ):
+        for match in re.finditer(pattern, html, re.DOTALL | re.IGNORECASE):
+            candidates.append(match.group(1))
+    # Unescape common encodings used in RENDER_DATA
+    for raw in candidates:
+        text = raw
+        try:
+            text = urllib.parse.unquote(text)
+        except Exception:
+            pass
+        text = text.replace('\\"', '"').replace("\\u002F", "/").replace("\\u0026", "&")
+        # Pull individual fields with tolerant patterns
+        sec = re.search(r'"secUid"\s*:\s*"([^"]+)"|"sec_uid"\s*:\s*"([^"]+)"|"sec_user_id"\s*:\s*"([^"]+)"', text)
+        if sec:
+            result["sec_user_id"] = next(g for g in sec.groups() if g)
+        uid = re.search(r'"uniqueId"\s*:\s*"([^"]+)"|"unique_id"\s*:\s*"([^"]+)"', text)
+        if uid:
+            result["unique_id"] = next(g for g in uid.groups() if g)
+        nick = re.search(r'"nickname"\s*:\s*"([^"\\]+)"', text)
+        if nick:
+            result["nickname"] = nick.group(1)
+        web = re.search(r'"web_rid"\s*:\s*"?(\d+)"?|"webRid"\s*:\s*"?(\d+)"?', text)
+        if web:
+            result["web_rid"] = next(g for g in web.groups() if g)
+        room = re.search(r'"roomId"\s*:\s*"?(\d+)"?|"room_id"\s*:\s*"?(\d+)"?|"id_str"\s*:\s*"(\d{10,})"', text)
+        if room:
+            result["room_id"] = next(g for g in room.groups() if g)
+        status = re.search(r'"status"\s*:\s*(\d+)', text)
+        if status and status.group(1) == "2":
+            result["is_live"] = True
+        if _profile_has_core_info(result):
+            return result
+    return result
+
+
 async def fetch_douyin_user_page(value: str, proxy_addr: str | None = None,
                                  headers: dict | None = None) -> dict:
-    """Page fallback for profile API changes or transient rejection."""
+    """Page fallback for profile API changes or transient rejection.
+
+    Tries structured JSON / hydration data first, then falls back to legacy
+    regex extraction so a single page layout change does not break everything.
+    """
     page_url = value if value.startswith("http") else f"https://www.douyin.com/user/{urllib.parse.quote(value)}"
     proxy = utils.handle_proxy_addr(proxy_addr)
     async with httpx.AsyncClient(proxy=proxy, timeout=15, follow_redirects=True) as client:
         response = await client.get(page_url, headers=headers or HEADERS_PC)
         response.raise_for_status()
         html = response.text
+
+    structured = _extract_from_page_json(html)
+    if _profile_has_core_info(structured):
+        return structured
+
+    # Legacy regex fallback
     sec_matches = _SEC_ID_RE.findall(html)
     nickname_match = re.search(r'(?:\\?")nickname(?:\\?")\s*:\s*(?:\\?")([^"\\,}]+)', html)
     web_match = re.search(r'(?:\\?")web_rid(?:\\?")\s*:\s*(?:\\?")?(\d+)', html)
     status_match = re.search(r'(?:\\?")status(?:\\?")\s*:\s*(\d+)', html)
+    room_match = re.search(r'(?:\\?")(?:roomId|room_id|id_str)(?:\\?")\s*:\s*(?:\\?")?(\d{8,})', html)
     return {
-        "sec_user_id": sec_matches[0] if sec_matches else None,
-        "nickname": nickname_match.group(1) if nickname_match else "",
-        "web_rid": web_match.group(1) if web_match else None,
-        "is_live": status_match.group(1) == "2" if status_match else False,
+        "sec_user_id": structured.get("sec_user_id") or (sec_matches[0] if sec_matches else None),
+        "unique_id": structured.get("unique_id"),
+        "nickname": structured.get("nickname") or (nickname_match.group(1) if nickname_match else ""),
+        "web_rid": structured.get("web_rid") or (web_match.group(1) if web_match else None),
+        "room_id": structured.get("room_id") or (room_match.group(1) if room_match else None),
+        "is_live": structured.get("is_live") or (status_match.group(1) == "2" if status_match else False),
     }
 
 
