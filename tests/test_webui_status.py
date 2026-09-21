@@ -67,9 +67,66 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertEqual(state["monitors"][self.url]["recording_status"], "recovering")
         self.assertNotIn("LIVE_ENDED", [e["type"] for e in state["events"]])
 
+    def test_real_recovery_sequence_emits_recovered_once(self):
         status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_recording_started(self.url, self.name, 1234, "/downloads/a.mp4")
+        status_runtime.mark_recording_finished(self.url, self.name, 1)
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_recording_starting(self.url, self.name, "/downloads/b.mp4")
         status_runtime.mark_recording_started(self.url, self.name, 5678, "/downloads/b.mp4")
-        self.assertIn("RECORDING_RECOVERED", [e["type"] for e in status_runtime.load_state()["events"]])
+        status_runtime.mark_recording_started(self.url, self.name, 5678, "/downloads/b.mp4")
+        event_types = [e["type"] for e in status_runtime.load_state()["events"]]
+        self.assertEqual(event_types.count("RECORDING_RECOVERING"), 1)
+        self.assertEqual(event_types.count("RECORDING_RECOVERED"), 1)
+
+    def test_direct_flv_recording_updates_runtime_and_completes(self):
+        states_during_download = []
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+
+        def download():
+            item = status_runtime.load_state()["monitors"][self.url]
+            states_during_download.append((
+                item["recording_status"], item["recording_file"], item["recording_started_at"]
+            ))
+
+        started = status_runtime.run_direct_recording(
+            self.url, self.name, "/downloads/live.flv", download
+        )
+
+        self.assertTrue(started)
+        self.assertEqual(states_during_download[0][0], "recording")
+        self.assertEqual(states_during_download[0][1], "/downloads/live.flv")
+        self.assertIsNotNone(states_during_download[0][2])
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["recording_status"], "completed")
+        self.assertIsNotNone(item["recording_started_at"])
+        self.assertEqual(item["recording_file"], "/downloads/live.flv")
+        event_types = [e["type"] for e in status_runtime.load_state()["events"]]
+        self.assertEqual(event_types.count("RECORDING_STARTED"), 1)
+        self.assertEqual(event_types.count("RECORDING_ENDED"), 1)
+
+    def test_direct_flv_recording_error_and_duplicate_guard(self):
+        self.assertTrue(status_runtime.claim_recording_task(self.url))
+        called = []
+        try:
+            started = status_runtime.run_direct_recording(
+                self.url, self.name, "/downloads/duplicate.flv", lambda: called.append(True)
+            )
+        finally:
+            status_runtime.release_recording_task(self.url)
+        self.assertFalse(started)
+        self.assertEqual(called, [])
+
+        def fail_download():
+            raise OSError("network failed")
+
+        with self.assertRaises(OSError):
+            status_runtime.run_direct_recording(
+                self.url, self.name, "/downloads/error.flv", fail_download
+            )
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertEqual(item["recording_status"], "error")
+        self.assertIsNone(item["recording_pid"])
 
     def test_restart_reconciles_missing_ffmpeg_process(self):
         status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
