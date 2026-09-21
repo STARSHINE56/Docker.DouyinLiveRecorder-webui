@@ -270,6 +270,15 @@ def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> No
         logger.error(f'An unknown error occurred: {e}')
 
 
+def recording_segment_paths(save_file_path: str) -> list[str]:
+    """Return only files produced by this recording's exact output pattern."""
+    path = Path(save_file_path)
+    if "%03d" not in path.name:
+        return [str(path)] if path.exists() else []
+    pattern = path.name.replace("%03d", "[0-9][0-9][0-9]")
+    return [str(item) for item in sorted(path.parent.glob(pattern)) if item.is_file()]
+
+
 def converts_m4a(converts_file_path: str, is_original_delete: bool = True) -> None:
     try:
         if os.path.exists(converts_file_path) and os.path.getsize(converts_file_path) > 0:
@@ -398,6 +407,31 @@ def run_script(command: str) -> None:
         logger.error('Please add `#!/bin/bash` at the beginning of your bash script file.')
 
 
+def run_post_record_script(script_command: str | None, record_name: str,
+                           save_file_path: str, save_type: str) -> None:
+    if not script_command:
+        return
+    logger.debug("开始执行脚本命令!")
+    if "python" in script_command:
+        params = [
+            f'--record_name "{record_name}"',
+            f'--save_file_path "{save_file_path}"',
+            f'--save_type {save_type}',
+            f'--split_video_by_time {split_video_by_time}',
+            f'--converts_to_mp4 {converts_to_mp4}',
+        ]
+    else:
+        params = [
+            f'"{record_name.split(" ", maxsplit=1)[-1]}"',
+            f'"{save_file_path}"',
+            save_type,
+            f'split_video_by_time:{split_video_by_time}',
+            f'converts_to_mp4:{converts_to_mp4}'
+        ]
+    run_script(script_command.strip() + ' ' + ' '.join(params))
+    logger.debug("脚本命令执行结束!")
+
+
 def clear_record_info(record_name: str, record_url: str) -> None:
     global monitoring
     recording.discard(record_name)
@@ -459,36 +493,13 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
     if return_code == 0:
         if converts_to_mp4 and save_type == 'TS':
             if split_video_by_time:
-                file_paths = utils.get_file_paths(os.path.dirname(save_file_path))
-                prefix = os.path.basename(save_file_path).rsplit('_', maxsplit=1)[0]
-                for path in file_paths:
-                    if prefix in path:
-                        threading.Thread(target=converts_mp4, args=(path, delete_origin_file)).start()
+                for path in recording_segment_paths(save_file_path):
+                    converts_mp4(path, delete_origin_file)
             else:
-                threading.Thread(target=converts_mp4, args=(save_file_path, delete_origin_file)).start()
+                converts_mp4(save_file_path, delete_origin_file)
         print(f"\n{record_name} {stop_time} 直播录制完成\n")
 
-        if script_command:
-            logger.debug("开始执行脚本命令!")
-            if "python" in script_command:
-                params = [
-                    f'--record_name "{record_name}"',
-                    f'--save_file_path "{save_file_path}"',
-                    f'--save_type {save_type}'
-                    f'--split_video_by_time {split_video_by_time}',
-                    f'--converts_to_mp4 {converts_to_mp4}',
-                ]
-            else:
-                params = [
-                    f'"{record_name.split(" ", maxsplit=1)[-1]}"',
-                    f'"{save_file_path}"',
-                    save_type,
-                    f'split_video_by_time:{split_video_by_time}',
-                    f'converts_to_mp4:{converts_to_mp4}'
-                ]
-            script_command = script_command.strip() + ' ' + ' '.join(params)
-            run_script(script_command)
-            logger.debug("脚本命令执行结束!")
+        run_post_record_script(script_command, record_name, save_file_path, save_type)
 
     else:
         color_obj.print_colored(f"\n{record_name} {stop_time} 直播录制出错,返回码: {return_code}\n", color_obj.RED)
@@ -1275,24 +1286,24 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                             error_count += 1
                                             error_window.append(1)
 
+                                    post_record_path = save_file_path
                                     try:
                                         if flv_recorded and converts_to_mp4:
                                             seg_file_path = f"{full_path}/{anchor_name}_{title_in_name}{now}_%03d.mp4"
                                             if split_video_by_time:
+                                                post_record_path = seg_file_path
                                                 segment_video(
                                                     save_file_path, seg_file_path,
                                                     segment_format='mp4', segment_time=split_time,
                                                     is_original_delete=delete_origin_file
                                                 )
                                             else:
-                                                threading.Thread(
-                                                    target=converts_mp4,
-                                                    args=(save_file_path, delete_origin_file)
-                                                ).start()
+                                                converts_mp4(save_file_path, delete_origin_file)
 
                                         elif flv_recorded:
                                             seg_file_path = f"{full_path}/{anchor_name}_{title_in_name}{now}_%03d.flv"
                                             if split_video_by_time:
+                                                post_record_path = seg_file_path
                                                 segment_video(
                                                     save_file_path, seg_file_path,
                                                     segment_format='flv', segment_time=split_time,
@@ -1300,6 +1311,11 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 )
                                     except Exception as e:
                                         logger.error(f"转码失败: {e} ")
+
+                                    if flv_recorded and use_direct_flv:
+                                        run_post_record_script(
+                                            custom_script, record_name, post_record_path, video_save_type
+                                        )
 
                                 elif video_save_type == "MKV":
                                     filename = anchor_name + f'_{title_in_name}' + now + ".mkv"

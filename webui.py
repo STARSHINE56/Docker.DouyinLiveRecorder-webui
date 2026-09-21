@@ -383,6 +383,13 @@ def add_anchor():
     url = request.form.get("anchor_url", "").strip()
     name = request.form.get("anchor_name", "").strip()
 
+    if re.fullmatch(r"MS4wLj[A-Za-z0-9_-]+", url):
+        url = f"https://www.douyin.com/user/{url}"
+    elif url.isdigit():
+        url = f"https://live.douyin.com/{url}"
+    elif re.fullmatch(r"[A-Za-z0-9._-]{2,40}", url):
+        url = f"https://www.douyin.com/user/{url}"
+
     if not url.startswith(("http://", "https://")):
         return redirect(
             url_for("url_config_page", error="invalid_url")

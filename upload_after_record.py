@@ -1,9 +1,12 @@
 import argparse
 import configparser
+import json
 import re
+import subprocess
 import sys
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -210,36 +213,13 @@ def get_mp4_candidates(
 
     result = []
 
-    exact = folder / (
-        stem + ".mp4"
-    )
-
-    if exact.exists():
-        result.append(
-            exact
-        )
-
-    prefix = (
-        stem.rsplit("_", 1)[0]
-        if "_" in stem
-        else stem
-    )
-
-    for file in folder.glob(
-        "*.mp4"
-    ):
-        if file in result:
-            continue
-
-        if (
-            file.stem == stem
-            or file.stem.startswith(
-                prefix + "_"
-            )
-        ):
-            result.append(
-                file
-            )
+    if "%03d" in stem:
+        pattern = stem.replace("%03d", "[0-9][0-9][0-9]") + ".mp4"
+        result.extend(file for file in folder.glob(pattern) if file.is_file())
+    else:
+        exact = folder / (stem + ".mp4")
+        if exact.exists():
+            result.append(exact)
 
     return sorted(
         result,
@@ -274,9 +254,41 @@ def file_is_stable(
     )
 
 
+def probe_media_file(path, require_video=True, require_audio=True, runner=subprocess.run):
+    """Validate a finished media file before it is eligible for upload."""
+    path = Path(path)
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    command = [
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration:stream=codec_type", "-of", "json", str(path),
+    ]
+    try:
+        result = runner(command, capture_output=True, text=True, timeout=60, check=False)
+        if result.returncode != 0:
+            log(f"ffprobe 失败，保留本地: {path.name}")
+            return False
+        payload = json.loads(result.stdout or "{}")
+        duration = float((payload.get("format") or {}).get("duration") or 0)
+        stream_types = {item.get("codec_type") for item in payload.get("streams", [])}
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        log(f"ffprobe 校验异常，保留本地: {path.name}: {exc}")
+        return False
+    if duration <= 0 or (require_video and "video" not in stream_types):
+        log(f"MP4 无有效视频或时长，拒绝上传并保留本地: {path.name}")
+        return False
+    if require_audio and "audio" not in stream_types:
+        log(f"MP4 未检测到音轨，拒绝上传并保留本地: {path.name}")
+        return False
+    return True
+
+
 def wait_for_mp4(
     save_file_path,
-    timeout
+    timeout,
+    require_video=True,
+    require_audio=True,
+    poll_interval=5,
 ):
     deadline = (
         time.time()
@@ -287,6 +299,7 @@ def wait_for_mp4(
         "等待 MP4 转换完成..."
     )
 
+    previous = None
     while time.time() < deadline:
         candidates = (
             get_mp4_candidates(
@@ -294,22 +307,34 @@ def wait_for_mp4(
             )
         )
 
-        ready = []
-
-        for file in candidates:
-            if file_is_stable(
-                file
-            ):
-                ready.append(
-                    file
-                )
-
-        if ready:
-            return ready
-
-        time.sleep(5)
+        signature = tuple((str(file), file.stat().st_size) for file in candidates if file.exists())
+        if candidates and signature == previous:
+            invalid = [file for file in candidates if not probe_media_file(
+                file, require_video=require_video, require_audio=require_audio
+            )]
+            if invalid:
+                return []
+            return candidates
+        previous = signature
+        time.sleep(poll_interval)
 
     return []
+
+
+def remote_content_length(response):
+    try:
+        root = ET.fromstring(response.content)
+        for element in root.iter():
+            if element.tag.rsplit("}", 1)[-1].lower() == "getcontentlength":
+                value = (element.text or "").strip()
+                if value.isdigit():
+                    return int(value)
+    except ET.ParseError:
+        pass
+    header = response.headers.get("getcontentlength") or response.headers.get("Content-Length")
+    if header and str(header).isdigit():
+        return int(header)
+    return None
 
 
 def upload(
@@ -385,12 +410,11 @@ def upload(
                     200,
                     207,
                 ):
-                    log(
-                        "上传成功并通过校验: "
-                        f"{local_file.name}"
-                    )
-
-                    return True
+                    remote_size = remote_content_length(verify)
+                    if remote_size == size:
+                        log("上传成功并通过大小校验: " + local_file.name)
+                        return True
+                    log(f"远端大小校验失败: 本地={size}, 远端={remote_size}")
 
                 log(
                     "远端校验失败 HTTP "
@@ -443,6 +467,10 @@ def main():
         "--save_file_path",
         default=""
     )
+
+    parser.add_argument("--save_type", default="TS")
+    parser.add_argument("--split_video_by_time", default="False")
+    parser.add_argument("--converts_to_mp4", default="True")
 
     args, _ = (
         parser.parse_known_args()
@@ -576,7 +604,9 @@ def main():
 
     mp4_files = wait_for_mp4(
         args.save_file_path,
-        wait_seconds
+        wait_seconds,
+        require_video="音频" not in args.save_type,
+        require_audio=True,
     )
 
     if not mp4_files:
