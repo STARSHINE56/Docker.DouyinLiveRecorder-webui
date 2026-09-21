@@ -134,7 +134,15 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
         else:
             room_id = profile.get("room_id")
             sec_uid = profile.get("sec_user_id")
-            data = (room_id, sec_uid) if room_id and sec_uid else await get_sec_user_id(url, proxy_addr=proxy_addr)
+            if room_id and sec_uid:
+                data = (room_id, sec_uid)
+            else:
+                legacy_data = await get_sec_user_id(url, proxy_addr=proxy_addr)
+                if legacy_data:
+                    legacy_room_id, legacy_sec_uid = legacy_data
+                    data = (legacy_room_id, sec_uid or legacy_sec_uid)
+                else:
+                    data = None
 
             if data:
                 _room_id, _sec_uid = data

@@ -124,13 +124,14 @@ async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = N
                 web_rid = (room_data.get("owner") or {}).get("web_rid") or room_data.get("web_rid")
                 web_rid = web_rid or user.get("web_rid_str") or user.get("web_rid")
                 avatar_urls = (user.get("avatar_thumb") or {}).get("url_list") or []
+                room_status = room_data.get("status")
                 profile = {
                     "sec_user_id": sec_user_id,
                     "nickname": (user.get("nickname") or "").strip(),
                     "avatar": avatar_urls[0] if avatar_urls else "",
                     "room_id": str(room_data.get("id_str") or room_data.get("id") or "") or None,
                     "web_rid": str(web_rid) if web_rid else None,
-                    "is_live": room_data.get("status") == 2,
+                    "is_live": None if room_status is None else str(room_status) == "2",
                 }
                 if not _profile_has_core_info(profile):
                     raise EmptyDouyinProfileError(
@@ -154,7 +155,7 @@ def _extract_from_page_json(html: str) -> dict:
         "nickname": "",
         "web_rid": None,
         "room_id": None,
-        "is_live": False,
+        "is_live": None,
     }
     candidates: list[str] = []
     # Common Douyin page embeds
@@ -191,8 +192,8 @@ def _extract_from_page_json(html: str) -> dict:
         if room:
             result["room_id"] = next(g for g in room.groups() if g)
         status = re.search(r'"status"\s*:\s*(\d+)', text)
-        if status and status.group(1) == "2":
-            result["is_live"] = True
+        if status:
+            result["is_live"] = status.group(1) == "2"
         if _profile_has_core_info(result):
             return result
     return result
@@ -222,13 +223,16 @@ async def fetch_douyin_user_page(value: str, proxy_addr: str | None = None,
     web_match = re.search(r'(?:\\?")web_rid(?:\\?")\s*:\s*(?:\\?")?(\d+)', html)
     status_match = re.search(r'(?:\\?")status(?:\\?")\s*:\s*(\d+)', html)
     room_match = re.search(r'(?:\\?")(?:roomId|room_id|id_str)(?:\\?")\s*:\s*(?:\\?")?(\d{8,})', html)
+    is_live = structured.get("is_live")
+    if status_match:
+        is_live = status_match.group(1) == "2"
     return {
         "sec_user_id": structured.get("sec_user_id") or (sec_matches[0] if sec_matches else None),
         "unique_id": structured.get("unique_id"),
         "nickname": structured.get("nickname") or (nickname_match.group(1) if nickname_match else ""),
         "web_rid": structured.get("web_rid") or (web_match.group(1) if web_match else None),
         "room_id": structured.get("room_id") or (room_match.group(1) if room_match else None),
-        "is_live": structured.get("is_live") or (status_match.group(1) == "2" if status_match else False),
+        "is_live": is_live,
     }
 
 

@@ -1,5 +1,6 @@
+import json
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from streamget import room, spider, stream
 
@@ -23,6 +24,33 @@ class DouyinIdentifierTests(unittest.TestCase):
 
 
 class DouyinResolveTests(unittest.IsolatedAsyncioTestCase):
+    async def test_page_without_status_keeps_live_state_unknown(self):
+        response = MagicMock()
+        response.text = '<script id="RENDER_DATA">{"secUid":"MS4wLjABAAAA_page"}</script>'
+        response.raise_for_status.return_value = None
+        client = AsyncMock()
+        client.get.return_value = response
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch.object(room.httpx, "AsyncClient", return_value=context):
+            value = await room.fetch_douyin_user_page("MS4wLjABAAAA_page")
+        self.assertEqual(value["sec_user_id"], "MS4wLjABAAAA_page")
+        self.assertIsNone(value["is_live"])
+
+    async def test_profile_without_room_status_keeps_live_state_unknown(self):
+        response = MagicMock()
+        response.json.return_value = {
+            "user": {"sec_uid": "MS4wLjABAAAA_profile", "nickname": "主播", "room_data": {}}
+        }
+        response.raise_for_status.return_value = None
+        client = AsyncMock()
+        client.get.return_value = response
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch.object(room.httpx, "AsyncClient", return_value=context):
+            value = await room.fetch_douyin_user_profile("MS4wLjABAAAA_profile")
+        self.assertIsNone(value["is_live"])
+
     async def test_short_url_uses_resolved_live_room(self):
         resolved = {"web_rid": "9988", "resolved_url": "https://live.douyin.com/9988"}
         with patch.object(room, "resolve_douyin_short_url", AsyncMock(return_value=resolved)):
@@ -59,6 +87,40 @@ class DouyinResolveTests(unittest.IsolatedAsyncioTestCase):
         result = await stream.get_douyin_stream_url(raw, "OD")
         self.assertEqual(result["anchor_name"], "离线主播")
         self.assertFalse(result["is_live"])
+
+    async def test_unknown_live_state_continues_legacy_reflow_fallback(self):
+        profile = {
+            "sec_user_id": "MS4wLjABAAAA_unknown",
+            "nickname": "",
+            "is_live": None,
+            "web_rid": None,
+            "room_id": None,
+        }
+        reflow = {"data": {"room": {"status": 4, "owner": {"nickname": "未知状态主播"}}}}
+        with patch.object(spider, "resolve_douyin_profile", AsyncMock(return_value=profile)), patch.object(
+            spider, "get_sec_user_id", AsyncMock(return_value=("123456789", None))
+        ) as legacy_mock, patch.object(spider, "async_req", AsyncMock(return_value=json.dumps(reflow))) as request_mock:
+            value = await spider.get_douyin_app_stream_data("https://v.douyin.com/example/")
+        legacy_mock.assert_awaited_once()
+        request_mock.assert_awaited_once()
+        self.assertIn(profile["sec_user_id"], request_mock.await_args.kwargs["url"])
+        self.assertEqual(value["status"], 4)
+        self.assertEqual(value["anchor_name"], "未知状态主播")
+
+    async def test_explicit_offline_state_still_short_circuits(self):
+        profile = {
+            "sec_user_id": "MS4wLjABAAAA_offline",
+            "nickname": "离线主播",
+            "is_live": False,
+            "web_rid": None,
+        }
+        with patch.object(spider, "resolve_douyin_profile", AsyncMock(return_value=profile)), patch.object(
+            spider, "get_sec_user_id", AsyncMock()
+        ) as legacy_mock:
+            value = await spider.get_douyin_app_stream_data("https://www.douyin.com/user/MS4wLjABAAAA_offline")
+        legacy_mock.assert_not_awaited()
+        self.assertEqual(value["status"], 4)
+        self.assertFalse(value["is_live"])
 
 
 if __name__ == "__main__":
