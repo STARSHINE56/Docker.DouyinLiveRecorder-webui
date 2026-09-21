@@ -14,15 +14,68 @@ import json
 import time
 import random
 import re
+import subprocess
 from operator import itemgetter
 import urllib.parse
 import urllib.request
-from .utils import trace_error_decorator
+from .utils import logger, trace_error_decorator
 from .spider import (
     get_douyu_stream_data, get_bilibili_stream_data
 )
 
 QUALITY_MAPPING = {"OD": 0, "BD": 0, "UHD": 1, "HD": 2, "SD": 3, "LD": 4}
+
+
+def probe_stream_has_audio(stream_url: str, timeout: int = 15) -> bool | None:
+    """Return whether ffprobe finds an audio stream, or None when probing fails."""
+    if not stream_url:
+        return False
+
+    command = [
+        "ffprobe",
+        "-v", "error",
+        "-rw_timeout", str(timeout * 1_000_000),
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_type",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        stream_url,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning(f"直播源音轨探测失败: {exc}")
+        return None
+
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()
+        message = detail[-1] if detail else f"ffprobe 返回码 {result.returncode}"
+        logger.warning(f"直播源音轨探测失败: {message}")
+        return None
+    return any(line.strip() == "audio" for line in result.stdout.splitlines())
+
+
+def select_douyin_record_url(m3u8_url: str | None, flv_url: str | None,
+                             audio_probe=probe_stream_has_audio, warning=logger.warning) -> str | None:
+    """Prefer the Douyin source that actually contains an audio stream."""
+    m3u8_has_audio = audio_probe(m3u8_url) if m3u8_url else False
+    flv_has_audio = audio_probe(flv_url) if flv_url else False
+
+    if m3u8_has_audio is True:
+        return m3u8_url
+    if flv_has_audio is True:
+        return flv_url
+
+    warning(
+        "抖音 M3U8 和 FLV 直播源均未检测到音轨"
+        f"（M3U8={m3u8_has_audio}, FLV={flv_has_audio}），将使用原有优先级继续录制"
+    )
+    return m3u8_url or flv_url
 
 
 def get_quality_index(quality) -> tuple:
