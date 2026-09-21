@@ -83,6 +83,8 @@ ipython_config.py
 
 # DouyinLiveRecord
 backup_config/
+config/runtime_state.json
+config/runtime_state.lock
 logs/
 node/
 node-v*.zip
