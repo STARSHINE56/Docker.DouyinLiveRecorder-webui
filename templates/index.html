@@ -22,6 +22,15 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
 @media(max-width:760px){body{padding-bottom:env(safe-area-inset-bottom)}.shell{padding:12px 12px 132px}.topbar{align-items:flex-start;gap:10px}.service{text-align:right;max-width:42%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.mainnav{position:fixed;z-index:50;left:10px;right:10px;bottom:10px;margin:0;box-shadow:0 10px 30px rgba(15,23,42,.18)}.settings-grid{grid-template-columns:1fr}.card{padding:15px}.brand h1{font-size:20px}.monitor-head{display:grid}.badge-row{justify-content:flex-start}.monitor-meta,.detail-grid{grid-template-columns:1fr}.detail-btn{width:100%}}
 @media(max-width:360px){.shell{padding-left:8px;padding-right:8px}.mainnav{left:6px;right:6px;gap:3px}.mainnav a{padding-left:3px;padding-right:3px}.stat{padding:11px}.card{padding:12px}}
 @media(min-width:900px){.monitor-list{grid-template-columns:repeat(2,1fr)}}
+/* Material 3 surface and control refinements; no typography override. */
+:root{--bg:#f7f7ff;--card:#fff;--text:#1a1b20;--muted:#5f636f;--line:#e2e2ec;--primary:#465d91;--shadow:0 2px 12px rgba(27,29,36,.07)}
+.topbar{gap:16px;padding:4px 2px}.brand{min-width:0}.brand h1{overflow-wrap:anywhere}.service{background:#eef0fb;padding:7px 11px;border-radius:999px;text-align:center}
+.mainnav{gap:6px;background:#eef0fb;border-radius:20px}.mainnav a{min-height:44px;display:grid;place-items:center;border-radius:15px}.mainnav a.active{background:#dbe2ff;color:#17305f;box-shadow:none}
+.card{border-radius:22px;padding:18px;margin-bottom:14px}.stat{border-radius:18px;padding:15px}.stat b{color:var(--primary)}
+.refresh,.detail-btn,.anchor-add button,.delete-btn,.btn{border-radius:999px;min-height:44px}.refresh,.detail-btn,.btn.secondary{background:#dbe2ff;color:#17305f}
+.monitor{border-radius:18px}.anchor-row{grid-template-columns:minmax(0,1fr) auto}.settings-grid a{border-radius:18px;padding:17px}
+.anchor-add input,.form-group input,.form-group textarea,.form-group select{min-height:48px;border-radius:14px;padding:11px 14px}.form-group input:focus,.form-group textarea:focus,.form-group select:focus{outline:2px solid #dbe2ff;border-color:var(--primary)}
+@media(max-width:760px){.topbar{flex-wrap:wrap}.service{max-width:100%;text-align:left}.mainnav{bottom:max(10px,env(safe-area-inset-bottom))}.card{padding:15px}}
 </style>
 </head>
 <body>
