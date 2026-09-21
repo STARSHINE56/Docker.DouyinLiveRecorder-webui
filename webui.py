@@ -3,12 +3,14 @@ import configparser
 import os
 import re
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
 from streamget.logger import logger
+import status_runtime as runtime_status
 
 app = Flask(__name__)
 
@@ -20,6 +22,8 @@ LOG_FILES = (
 )
 
 recording_process = None
+recording_process_lock = threading.Lock()
+runtime_status.reconcile_stale_recordings()
 
 
 def read_config(file_path):
@@ -142,9 +146,15 @@ def parse_monitor_lines():
             "name": name,
             "url": url,
             "platform": platform_from_url(url),
-            "status": "waiting",
-            "status_text": "等待直播",
-            "updated_at": "--",
+            "monitor_status": "waiting",
+            "live_status": "unknown",
+            "recording_status": "idle",
+            "last_checked_at": None,
+            "last_success_at": None,
+            "live_started_at": None,
+            "recording_started_at": None,
+            "recording_file": None,
+            "last_error": None,
         })
     return items
 
@@ -274,50 +284,30 @@ def summarize_event(line):
 
 def get_monitor_snapshot():
     items = parse_monitor_lines()
-    logs = read_log_lines(500)
-
+    state = runtime_status.load_state()
+    runtime_monitors = state.get("monitors", {})
     for item in items:
-        for line in reversed(logs):
-            state = classify_status(line)
-            if state and status_applies_to_monitor(line, item, state[0]):
-                item["status"], item["status_text"] = state
-                ts = re.search(r"(20\d\d[-/]\d\d[-/]\d\d[ T]\d\d:\d\d:\d\d)", line)
-                if ts:
-                    item["updated_at"] = ts.group(1).replace("/", "-")
-                break
+        persisted = runtime_monitors.get(item["url"], {})
+        for key in (
+            "monitor_status", "live_status", "recording_status", "last_checked_at",
+            "last_success_at", "live_started_at", "recording_started_at",
+            "recording_file", "last_error", "session_id",
+        ):
+            if key in persisted:
+                item[key] = persisted[key]
+        if persisted.get("name") and item["name"] in {"待识别主播", "等待获取主播名"}:
+            item["name"] = persisted["name"]
 
     counts = {
         "total": len(items),
-        "waiting": sum(i["status"] == "waiting" for i in items),
-        "live": sum(i["status"] == "live" for i in items),
-        "recording": sum(i["status"] == "recording" for i in items),
-        "error": sum(i["status"] == "error" for i in items),
+        "live": sum(i["live_status"] == "live" for i in items),
+        "recording": sum(i["recording_status"] == "recording" for i in items),
+        "error": sum(
+            i["monitor_status"] == "error" or i["recording_status"] == "error"
+            for i in items
+        ),
     }
-
-    # Process oldest-to-newest so only real state transitions survive. Repeated
-    # polling lines for the same anchor/state no longer flood "最近事件".
-    event_records = []
-    last_state = {}
-    seen_non_state = set()
-    state_names = {"waiting", "live", "recording"}
-
-    for line in logs:
-        event = summarize_event(line)
-        if not event:
-            continue
-
-        if event["state"] in state_names:
-            if last_state.get(event["anchor"]) == event["state"]:
-                continue
-            last_state[event["anchor"]] = event["state"]
-        elif event["key"] in seen_non_state:
-            continue
-        else:
-            seen_non_state.add(event["key"])
-
-        event_records.append(event["summary"])
-
-    events = list(reversed(event_records[-8:]))
+    events = list(reversed(state.get("events", [])[-20:]))
 
     return {
         "service_running": recording_process is not None and recording_process.poll() is None,
@@ -348,14 +338,21 @@ def api_status():
     return jsonify(get_monitor_snapshot())
 
 
+@app.route("/api/logs")
+def api_logs():
+    limit = max(20, min(request.args.get("limit", 120, type=int), 500))
+    return jsonify({"lines": read_log_lines(limit)})
+
+
 def start_main_recording():
     global recording_process
-    if recording_process is None or recording_process.poll() is not None:
-        try:
-            logger.info("WebUI启动时自动开始录制...")
-            recording_process = subprocess.Popen(["python", "main.py"], cwd=os.getcwd())
-        except Exception as exc:
-            logger.error(f"自动启动录制失败: {exc}")
+    with recording_process_lock:
+        if recording_process is None or recording_process.poll() is not None:
+            try:
+                logger.info("WebUI启动时自动开始录制...")
+                recording_process = subprocess.Popen(["python", "main.py"], cwd=os.getcwd())
+            except Exception as exc:
+                logger.error(f"自动启动录制失败: {exc}")
 
 
 def run_with_auto_record():

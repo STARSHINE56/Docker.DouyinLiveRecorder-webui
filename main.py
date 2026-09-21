@@ -39,6 +39,7 @@ from msg_push import (
 from ffmpeg_install import (
     check_ffmpeg, ffmpeg_path, current_env_path
 )
+import status_runtime as runtime_status
 
 version = "v4.0.3"
 platforms = ("\n国内站点：抖音|快手|虎牙|斗鱼|YY|B站|小红书|bigo|blued|网易CC|千度热播|猫耳FM|Look|TwitCasting|百度|微博|"
@@ -387,6 +388,7 @@ def run_script(command: str) -> None:
 def clear_record_info(record_name: str, record_url: str) -> None:
     global monitoring
     recording.discard(record_name)
+    runtime_status.release_recording_task(record_url)
     if record_url in url_comments and record_url in running_list:
         running_list.remove(record_url)
         monitoring -= 1
@@ -396,9 +398,20 @@ def clear_record_info(record_name: str, record_url: str) -> None:
 def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, save_type: str,
                      script_command: str | None = None) -> bool:
     save_file_path = ffmpeg_command[-1]
-    process = subprocess.Popen(
-        ffmpeg_command, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
-    )
+    anchor_name = record_name.split(" ", 1)[-1]
+    if not runtime_status.claim_recording_task(record_url):
+        logger.warning(f"[{anchor_name}] 已有活动录制任务，跳过重复启动")
+        return False
+    runtime_status.mark_recording_starting(record_url, anchor_name, save_file_path)
+    try:
+        process = subprocess.Popen(
+            ffmpeg_command, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
+        )
+    except Exception as exc:
+        runtime_status.release_recording_task(record_url)
+        runtime_status.mark_check_failed(record_url, anchor_name, f"FFmpeg 启动失败: {exc}")
+        raise
+    runtime_status.mark_recording_started(record_url, anchor_name, process.pid, save_file_path)
 
     subs_file_path = save_file_path.rsplit('.', maxsplit=1)[0]
     subs_thread_name = f'subs_{Path(subs_file_path).name}'
@@ -421,6 +434,10 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
             else:
                 process.send_signal(signal.SIGINT)
             process.wait()
+            runtime_status.mark_recording_finished(
+                record_url, anchor_name, process.returncode or 0, intentional=True
+            )
+            runtime_status.release_recording_task(record_url)
             return True
         time.sleep(1)
 
@@ -464,7 +481,18 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
         color_obj.print_colored(f"\n{record_name} {stop_time} 直播录制出错,返回码: {return_code}\n", color_obj.RED)
 
     recording.discard(record_name)
+    runtime_status.mark_recording_finished(record_url, anchor_name, return_code)
+    runtime_status.release_recording_task(record_url)
     return False
+
+
+def start_record_guarded(url_data: tuple, count_variable: int = -1) -> None:
+    """Keep exactly one detector thread per URL without changing recorder logic."""
+    record_url = url_data[1]
+    try:
+        start_record(url_data, count_variable)
+    finally:
+        runtime_status.release_detection_task(record_url)
 
 
 def clean_name(input_text):
@@ -521,6 +549,7 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
             # print(f'\r全局代理:{global_proxy}')
             while True:
                 try:
+                    runtime_status.mark_checking(record_url, anchor_name)
                     port_info = []
                     if record_url.find("douyin.com/") > -1:
                         platform = '抖音直播'
@@ -965,6 +994,7 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                         anchor_name = port_info.get("anchor_name", '')
 
                     if not port_info.get("anchor_name", ''):
+                        runtime_status.mark_check_failed(record_url, anchor_name, "直播 API 未返回主播信息")
                         print(f'序号{count_variable} 网址内容获取失败,进行重试中...获取失败的地址是:{url_data}')
                         with max_request_lock:
                             error_count += 1
@@ -989,9 +1019,12 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
 
                         push_at = datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')
                         if port_info['is_live'] is False:
+                            confirmed_status = runtime_status.update_live_status(
+                                record_url, anchor_name, False, stream_valid=False
+                            )
                             print(f"\r{record_name} 等待直播... ")
 
-                            if start_pushed:
+                            if start_pushed and confirmed_status == "offline":
                                 if over_show_push:
                                     push_content = "直播间状态更新：[直播间名称] 直播已结束！时间：[时间]"
                                     if over_push_message_text:
@@ -1007,6 +1040,13 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                 start_pushed = False
 
                         else:
+                            real_url = port_info.get('record_url')
+                            stream_valid = bool(
+                                real_url or port_info.get('m3u8_url') or port_info.get('flv_url')
+                            )
+                            runtime_status.update_live_status(
+                                record_url, anchor_name, True, stream_valid=stream_valid
+                            )
                             content = f"\r{record_name} 正在直播中..."
                             print(content)
 
@@ -1029,7 +1069,6 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                 time.sleep(push_check_seconds)
                                 continue
 
-                            real_url = port_info.get('record_url')
                             full_path = f'{default_path}/{platform}'
                             if real_url:
                                 now = datetime.datetime.today().strftime("%Y-%m-%d_%H-%M-%S")
@@ -1458,6 +1497,7 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                 count_time = time.time()
 
                 except Exception as e:
+                    runtime_status.mark_check_failed(record_url, anchor_name, str(e))
                     logger.error(f"错误信息: {e} 发生错误的行数: {e.__traceback__.tb_lineno}")
                     with max_request_lock:
                         error_count += 1
@@ -1577,6 +1617,7 @@ if not check_ffmpeg_existence():
     logger.error("缺少ffmpeg无法进行录制，程序退出")
     sys.exit(1)
 os.makedirs(os.path.dirname(config_file), exist_ok=True)
+runtime_status.reconcile_stale_recordings()
 t3 = threading.Thread(target=backup_file_start, args=(), daemon=True)
 t3.start()
 utils.remove_duplicate_lines(url_config_file)
@@ -1976,11 +2017,11 @@ while True:
                 if url_tuple[1] in not_record_list:
                     continue
 
-                if url_tuple[1] not in running_list:
+                if url_tuple[1] not in running_list and runtime_status.claim_detection_task(url_tuple[1]):
                     print(f"\r{'新增' if not first_start else '传入'}地址: {url_tuple[1]}")
                     monitoring += 1
                     args = [url_tuple, monitoring]
-                    create_var[f'thread_{monitoring}'] = threading.Thread(target=start_record, args=args)
+                    create_var[f'thread_{monitoring}'] = threading.Thread(target=start_record_guarded, args=args)
                     create_var[f'thread_{monitoring}'].daemon = True
                     create_var[f'thread_{monitoring}'].start()
                     running_list.append(url_tuple[1])
