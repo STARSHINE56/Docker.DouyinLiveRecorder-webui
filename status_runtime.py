@@ -60,6 +60,7 @@ def _default_monitor(url: str, name: str = "") -> dict[str, Any]:
         "recording_started_at": None,
         "recording_file": None,
         "recording_pid": None,
+        "recording_recovery_pending": False,
         "last_error": None,
         "session_id": None,
         "offline_confirmations": 0,
@@ -194,6 +195,7 @@ def update_live_status(url: str, name: str, is_live: bool, *, stream_valid: bool
             if item["recording_status"] not in {"idle", "completed", "error", "interrupted"}:
                 item["recording_status"] = "completed"
                 item["recording_pid"] = None
+                item["recording_recovery_pending"] = False
                 _emit_locked(state, item, "RECORDING_ENDED", "录制完成")
             _emit_locked(state, item, "LIVE_ENDED", "检测到下播")
             return "offline"
@@ -215,6 +217,12 @@ def mark_check_failed(url: str, name: str, error: str) -> None:
 def mark_recording_starting(url: str, name: str, file_path: str | None = None) -> None:
     with _locked_state() as state:
         item = _monitor(state, url, name)
+        # Preserve recovery intent across the real lifecycle transition
+        # recovering -> starting -> recording.
+        item["recording_recovery_pending"] = (
+            item["recording_status"] == "recovering"
+            or bool(item.get("recording_recovery_pending"))
+        )
         item["recording_status"] = "starting"
         item["recording_file"] = file_path
 
@@ -222,33 +230,63 @@ def mark_recording_starting(url: str, name: str, file_path: str | None = None) -
 def mark_recording_started(url: str, name: str, pid: int, file_path: str) -> None:
     with _locked_state() as state:
         item = _monitor(state, url, name)
-        recovering = item["recording_status"] == "recovering"
+        recovering = (
+            item["recording_status"] == "recovering"
+            or bool(item.get("recording_recovery_pending"))
+        )
         item["recording_status"] = "recording"
         item["recording_pid"] = pid
         item["recording_file"] = file_path
         item["recording_started_at"] = item.get("recording_started_at") or _now()
+        item["recording_recovery_pending"] = False
         if recovering:
             _emit_locked(state, item, "RECORDING_RECOVERED", "录制已恢复")
         else:
             _emit_locked(state, item, "RECORDING_STARTED", "开始录制")
 
 
-def mark_recording_finished(url: str, name: str, return_code: int, *, intentional: bool = False) -> str:
+def mark_recording_finished(
+    url: str, name: str, return_code: int, *, intentional: bool = False,
+    recover_if_live: bool = True,
+) -> str:
     with _locked_state() as state:
         item = _monitor(state, url, name)
         item["recording_pid"] = None
         # Any unrequested FFmpeg exit while the API still says live is treated
         # as a stream break, even when FFmpeg happens to return zero.
-        if not intentional and item["live_status"] in {"live", "suspected_offline"}:
+        if recover_if_live and not intentional and item["live_status"] in {"live", "suspected_offline"}:
             item["recording_status"] = "recovering"
+            item["recording_recovery_pending"] = True
             item["last_error"] = f"FFmpeg 已退出（代码 {return_code}），等待重新检测直播状态"
             _emit_locked(state, item, "RECORDING_RECOVERING", "录制断流，正在恢复")
             return "recovering"
         item["recording_status"] = "completed" if return_code == 0 or intentional else "error"
+        item["recording_recovery_pending"] = False
         if item["recording_status"] == "error":
             item["last_error"] = f"FFmpeg 退出，代码 {return_code}"
-        _emit_locked(state, item, "RECORDING_ENDED", "录制完成")
+        message = "录制完成" if item["recording_status"] == "completed" else "录制异常结束"
+        _emit_locked(state, item, "RECORDING_ENDED", message)
         return item["recording_status"]
+
+
+def run_direct_recording(
+    url: str, name: str, file_path: str, recorder: Callable[[], Any],
+) -> bool:
+    """Bridge an in-process blocking recorder (such as urlretrieve) to runtime state."""
+    if not claim_recording_task(url):
+        return False
+    mark_recording_starting(url, name, file_path)
+    mark_recording_started(url, name, os.getpid(), file_path)
+    try:
+        recorder()
+    except Exception:
+        mark_recording_finished(url, name, 1, recover_if_live=False)
+        raise
+    else:
+        mark_recording_finished(url, name, 0, recover_if_live=False)
+        return True
+    finally:
+        release_recording_task(url)
 
 
 def _pid_alive(pid: Any) -> bool:
@@ -270,6 +308,7 @@ def reconcile_stale_recordings(pid_checker: Callable[[Any], bool] = _pid_alive) 
                 if not pid_checker(item.get("recording_pid")):
                     item["recording_status"] = "interrupted"
                     item["recording_pid"] = None
+                    item["recording_recovery_pending"] = False
                     item["last_error"] = "服务重启后未发现原 FFmpeg 进程"
                     _emit_locked(state, item, "RECORDING_ENDED", "录制因服务重启中断")
                     repaired += 1

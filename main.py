@@ -1202,12 +1202,21 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
 
                                     try:
                                         flv_url = port_info.get('flv_url')
+                                        flv_recorded = False
                                         if flv_url:
-                                            _filepath, _ = urllib.request.urlretrieve(flv_url, save_file_path)
-                                            record_finished = True
-                                            recording.discard(record_name)
-                                            print(
-                                                f"\n{anchor_name} {time.strftime('%Y-%m-%d %H:%M:%S')} 直播录制完成\n")
+                                            flv_recorded = runtime_status.run_direct_recording(
+                                                record_url,
+                                                anchor_name,
+                                                save_file_path,
+                                                lambda: urllib.request.urlretrieve(flv_url, save_file_path),
+                                            )
+                                            if flv_recorded:
+                                                record_finished = True
+                                                recording.discard(record_name)
+                                                print(
+                                                    f"\n{anchor_name} {time.strftime('%Y-%m-%d %H:%M:%S')} 直播录制完成\n")
+                                            else:
+                                                logger.warning(f"[{anchor_name}] 已有活动录制任务，跳过重复 FLV 启动")
                                         else:
                                             logger.debug("未找到FLV直播流，跳过录制")
                                     except Exception as e:
@@ -1221,7 +1230,7 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                             error_window.append(1)
 
                                     try:
-                                        if converts_to_mp4:
+                                        if flv_recorded and converts_to_mp4:
                                             seg_file_path = f"{full_path}/{anchor_name}_{title_in_name}{now}_%03d.mp4"
                                             if split_video_by_time:
                                                 segment_video(
@@ -1235,7 +1244,7 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                     args=(save_file_path, delete_origin_file)
                                                 ).start()
 
-                                        else:
+                                        elif flv_recorded:
                                             seg_file_path = f"{full_path}/{anchor_name}_{title_in_name}{now}_%03d.flv"
                                             if split_video_by_time:
                                                 segment_video(
