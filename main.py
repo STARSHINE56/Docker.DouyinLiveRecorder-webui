@@ -636,8 +636,19 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                             if port_info.get('is_live'):
                                 m3u8_url = port_info.get('m3u8_url')
                                 flv_url = port_info.get('flv_url')
-                                selected_url = stream.select_douyin_record_url(m3u8_url, flv_url)
+                                probe_results = {}
+                                selected_url = stream.select_douyin_record_url(
+                                    m3u8_url,
+                                    flv_url,
+                                    audio_probe=lambda url: stream.probe_stream_has_audio(url, timeout=8),
+                                    probe_results=probe_results,
+                                )
                                 port_info['record_url'] = selected_url
+                                # A False result means ffprobe reached the stream but found no
+                                # audio; None means the probe itself failed or timed out.
+                                port_info['stream_valid'] = any(
+                                    result is not None for result in probe_results.values()
+                                )
                                 port_info['record_url_source'] = (
                                     'flv' if selected_url and selected_url == flv_url else 'm3u8'
                                 )
@@ -1117,9 +1128,11 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
 
                         else:
                             real_url = port_info.get('record_url')
-                            stream_valid = bool(
-                                real_url or port_info.get('m3u8_url') or port_info.get('flv_url')
-                            )
+                            stream_valid = port_info.get('stream_valid')
+                            if stream_valid is None:
+                                stream_valid = bool(
+                                    real_url or port_info.get('m3u8_url') or port_info.get('flv_url')
+                                )
                             runtime_status.update_live_status(
                                 record_url, anchor_name, True, stream_valid=stream_valid
                             )

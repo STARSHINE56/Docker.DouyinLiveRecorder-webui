@@ -1,474 +1,278 @@
-# -*- encoding: utf-8 -*-
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DouyinLiveRecorder</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#718096;--line:#e7ecf3;--primary:#2563eb;--green:#16a34a;--orange:#f59e0b;--red:#dc2626;--purple:#7c3aed;--shadow:0 8px 24px rgba(15,23,42,.06)}
+*{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
+a{text-decoration:none;color:inherit}.shell{max-width:1180px;margin:auto;padding:18px 16px 92px}.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.brand h1{font-size:23px;margin:0}.brand p{margin:2px 0 0;color:var(--muted);font-size:13px}.service{font-size:13px;color:var(--muted)}
+.mainnav{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;background:#edf2f8;padding:6px;border-radius:14px;margin-bottom:16px}.mainnav a{padding:10px 8px;text-align:center;border-radius:10px;font-weight:650;color:#52627a}.mainnav a.active{background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(15,23,42,.06)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px;margin-bottom:12px}.card h2{font-size:18px;margin:0 0 14px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.refresh{border:0;background:#edf4ff;color:var(--primary);padding:8px 11px;border-radius:10px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:12px}
+.monitor-list{display:grid;gap:10px}.monitor{min-width:0;border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:11px}.monitor-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;min-width:0}.monitor-title{min-width:0}.monitor-name{font-weight:750;font-size:16px;overflow-wrap:anywhere}.badge-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.monitor-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 12px}.meta{color:var(--muted);font-size:13px;overflow-wrap:anywhere;min-width:0}.error-text{color:var(--red);white-space:normal}.detail-btn{min-height:42px;border:0;border-radius:10px;background:#eef4ff;color:var(--primary);font-weight:700;padding:8px 13px}.badge{align-self:start;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#f1f5f9;white-space:nowrap}.badge.unknown,.badge.offline,.badge.idle,.badge.waiting,.badge.disabled,.badge.completed,.badge.interrupted{color:#475569;background:#f1f5f9}.badge.checking,.badge.suspected_live{color:#92400e;background:#fef3c7}.badge.live,.badge.running{color:#166534;background:#dcfce7}.badge.recording{color:#1d4ed8;background:#dbeafe}.badge.recovering,.badge.starting,.badge.stopping,.badge.suspected_offline{color:#9a3412;background:#ffedd5}.badge.error{color:#b91c1c;background:#fee2e2}
+.events{display:grid;gap:8px}.event{padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;color:#4b5563;overflow-wrap:anywhere}.event:last-child{border-bottom:0}
+.anchor-add{display:grid;grid-template-columns:1fr 160px auto;gap:8px;margin-bottom:14px}.anchor-add input{width:100%;min-height:44px;border:1px solid #cfd8e6;border-radius:10px;padding:10px 12px;background:#fff}.anchor-add button{border:0;border-radius:10px;background:var(--primary);color:#fff;padding:0 16px;font-weight:700}.anchor-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}.anchor-row:last-child{border-bottom:0}.anchor-row strong{display:block}.anchor-row .small{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.delete-btn{border:0;background:#fff1f2;color:#be123c;border-radius:9px;padding:8px 10px}.advanced{margin-top:14px}.advanced summary{cursor:pointer;color:var(--primary);font-weight:650}.advanced textarea{margin-top:10px}@media(max-width:760px){.anchor-add{grid-template-columns:1fr}.anchor-add button{min-height:44px}}.settings-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.settings-grid a{border:1px solid var(--line);border-radius:14px;padding:16px;background:#fff}.settings-grid b{display:block;margin-bottom:3px}.settings-grid span{font-size:13px;color:var(--muted)}
+form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;font-weight:650;margin-bottom:6px}.form-group input,.form-group textarea,.form-group select{width:100%;min-height:44px;border:1px solid #cfd8e6;border-radius:10px;padding:10px 12px;background:#fff;font:inherit}.form-group textarea{min-height:220px;resize:vertical}.btn{width:100%;min-height:46px;border:0;border-radius:11px;background:var(--primary);color:#fff;font-weight:750;padding:10px 14px}.btn.secondary{background:#eef4ff;color:var(--primary);margin-top:9px}
+.hint{font-size:13px;color:var(--muted);margin:0 0 12px}.empty{color:var(--muted);text-align:center;padding:28px 10px}.monitor-actions{display:grid;grid-template-columns:1fr;gap:8px}.stop-btn{min-height:42px;border:0;border-radius:999px;background:#fee2e2;color:#b91c1c;font-weight:750;padding:8px 13px}.stop-btn:disabled{opacity:.6}.recording-list{display:grid;gap:10px}.recording-item{min-width:0;border:1px solid var(--line);border-radius:18px;padding:14px;display:grid;gap:9px}.recording-name{font-weight:750;font-size:15px;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}.recording-path{font-size:12px;color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}.recording-meta{font-size:12px;color:var(--muted)}.recording-status{font-size:13px;font-weight:700;color:#475569}.recording-status.recording{color:#1d4ed8}.recording-status.stopping,.recording-status.recovering,.recording-status.starting{color:#9a3412}.recording-actions{display:flex;justify-content:flex-end}.recording-delete{border:0;border-radius:999px;background:#fff1f2;color:#be123c;min-height:36px;padding:7px 14px;font-weight:700}.recording-delete:disabled{background:#eef2f7;color:#64748b;opacity:1}
+.subnav{display:flex;gap:8px;overflow:auto;margin:-2px 0 14px;padding-bottom:2px}.subnav a{white-space:nowrap;background:#eef2f7;padding:8px 11px;border-radius:10px;color:#52627a}.subnav a.active{background:#dbeafe;color:#1d4ed8}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:99;box-shadow:var(--shadow)}
+.log-box{max-height:300px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0f172a;color:#e2e8f0;border-radius:12px;padding:12px;font-size:12px}.debug summary{cursor:pointer;font-weight:700}.dialog{width:min(560px,calc(100% - 24px));max-height:85vh;overflow:auto;border:0;border-radius:16px;padding:0;box-shadow:0 24px 70px rgba(15,23,42,.25)}.dialog::backdrop{background:rgba(15,23,42,.5)}.dialog-body{padding:18px}.dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.dialog-close{min-width:44px;min-height:44px;border:0;border-radius:10px;background:#eef2f7}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.detail-item{background:#f8fafc;border-radius:10px;padding:10px;overflow-wrap:anywhere}.detail-item small{display:block;color:var(--muted);margin-bottom:3px}.detail-events{padding-left:20px}.detail-events li{margin:7px 0;overflow-wrap:anywhere}
+@media(max-width:760px){body{padding-bottom:env(safe-area-inset-bottom)}.shell{padding:12px 12px 132px}.topbar{align-items:flex-start;gap:10px}.service{text-align:right;max-width:42%}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.mainnav{position:fixed;z-index:50;left:10px;right:10px;bottom:10px;margin:0;box-shadow:0 10px 30px rgba(15,23,42,.18)}.settings-grid{grid-template-columns:1fr}.card{padding:15px}.brand h1{font-size:20px}.monitor-head{display:grid}.badge-row{justify-content:flex-start}.monitor-meta,.detail-grid{grid-template-columns:1fr}.detail-btn{width:100%}}
+@media(max-width:360px){.shell{padding-left:8px;padding-right:8px}.mainnav{left:6px;right:6px;gap:3px}.mainnav a{padding-left:3px;padding-right:3px}.stat{padding:11px}.card{padding:12px}}
+@media(min-width:900px){.monitor-list{grid-template-columns:repeat(2,1fr)}}
+/* Material 3 surface and control refinements; no typography override. */
+:root{--bg:#f7f7ff;--card:#fff;--text:#1a1b20;--muted:#5f636f;--line:#e2e2ec;--primary:#465d91;--shadow:0 2px 12px rgba(27,29,36,.07)}
+.topbar{gap:16px;padding:4px 2px}.brand{min-width:0}.brand h1{overflow-wrap:anywhere}.service{background:#eef0fb;padding:7px 11px;border-radius:999px;text-align:center}
+.mainnav{gap:6px;background:#eef0fb;border-radius:20px}.mainnav a{min-height:44px;display:grid;place-items:center;border-radius:15px}.mainnav a.active{background:#dbe2ff;color:#17305f;box-shadow:none}
+.card{border-radius:22px;padding:18px;margin-bottom:14px}.stat{border-radius:18px;padding:15px}.stat b{color:var(--primary)}
+.refresh,.detail-btn,.anchor-add button,.delete-btn,.btn{border-radius:999px;min-height:44px}.refresh,.detail-btn,.btn.secondary{background:#dbe2ff;color:#17305f}
+.monitor{border-radius:18px}.anchor-row{grid-template-columns:minmax(0,1fr) auto}.settings-grid a{border-radius:18px;padding:17px}
+.anchor-add input,.form-group input,.form-group textarea,.form-group select{min-height:48px;border-radius:14px;padding:11px 14px}.form-group input:focus,.form-group textarea:focus,.form-group select:focus{outline:2px solid #dbe2ff;border-color:var(--primary)}
+@media(max-width:760px){.topbar{flex-wrap:wrap}.service{max-width:100%;text-align:left}.mainnav{bottom:max(10px,env(safe-area-inset-bottom))}.card{padding:15px}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><h1>DouyinLiveRecorder</h1><p>直播监控控制台</p></div>
+    <div id="service" class="service">正在读取状态…</div>
+  </header>
 
-"""
-Author: Hmily
-GitHub: https://github.com/ihmily
-Date: 2023-07-15 23:15:00
-Update: 2025-02-06 02:28:00
-Copyright (c) 2023-2025 by Hmily, All Rights Reserved.
-Function: Get live stream data.
-"""
-import base64
-import hashlib
-import json
-import time
-import random
-import re
-import subprocess
-from operator import itemgetter
-import urllib.parse
-import urllib.request
-from .utils import logger, trace_error_decorator
-from .spider import (
-    get_douyu_stream_data, get_bilibili_stream_data
-)
+  <nav class="mainnav">
+    <a href="{{ url_for('home_page') }}" class="{{ 'active' if active_tab=='home' else '' }}">首页</a>
+    <a href="{{ url_for('url_config_page') }}" class="{{ 'active' if active_tab=='url_config' else '' }}">主播</a>
+    <a href="{{ url_for('recording_settings_page') }}" class="{{ 'active' if active_tab=='recording_settings' else '' }}">录制</a>
+    <a href="{{ url_for('recordings_page') }}" class="{{ 'active' if active_tab=='recordings' else '' }}">录像</a>
+    <a href="{{ url_for('settings_page') }}" class="{{ 'active' if active_tab in ['settings','push_settings','cookie_settings','account_settings','xiaolan_webdav'] else '' }}">设置</a>
+  </nav>
 
-QUALITY_MAPPING = {"OD": 0, "BD": 0, "UHD": 1, "HD": 2, "SD": 3, "LD": 4}
+  {% if active_tab == 'home' %}
+  <div class="stats">
+    <div class="stat"><b id="s-total">0</b><span>监控主播数</span></div>
+    <div class="stat"><b id="s-live">0</b><span>直播中</span></div>
+    <div class="stat"><b id="s-recording">0</b><span>正在录制</span></div>
+    <div class="stat"><b id="s-error">0</b><span>异常</span></div>
+  </div>
 
+  <section class="card">
+    <div class="section-head"><h2>主播监控</h2><button class="refresh" onclick="loadStatus()">刷新</button></div>
+    <div id="monitor-list" class="monitor-list"><div class="empty">正在加载主播状态…</div></div>
+  </section>
 
-def probe_stream_has_audio(stream_url: str, timeout: int = 15) -> bool | None:
-    """Return whether ffprobe finds an audio stream, or None when probing fails."""
-    if not stream_url:
-        return False
+  <section class="card"><h2>最近事件</h2><div id="events" class="events"><div class="empty">暂无事件</div></div></section>
 
-    command = [
-        "ffprobe",
-        "-v", "error",
-        "-rw_timeout", str(timeout * 1_000_000),
-        "-select_streams", "a:0",
-        "-show_entries", "stream=codec_type",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        stream_url,
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout + 2,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning(f"直播源音轨探测失败: {exc}")
-        return None
+  <section class="card debug"><details id="debug-details"><summary>日志 / 调试</summary><p class="hint">原始日志仅用于排查，不参与直播或录制状态判断。</p><div id="raw-logs" class="log-box">展开后读取日志…</div></details></section>
 
-    if result.returncode != 0:
-        detail = (result.stderr or "").strip().splitlines()
-        message = detail[-1] if detail else f"ffprobe 返回码 {result.returncode}"
-        logger.warning(f"直播源音轨探测失败: {message}")
-        return None
-    return any(line.strip() == "audio" for line in result.stdout.splitlines())
+  <dialog id="detail-dialog" class="dialog"><div class="dialog-body"><div class="dialog-head"><h2 id="detail-title">主播详情</h2><button class="dialog-close" type="button" onclick="closeDetail()" aria-label="关闭">关闭</button></div><div id="detail-content"></div></div></dialog>
 
+  {% elif active_tab == 'url_config' %}
+  <section class="card">
+    <h2>添加主播</h2>
+    <p class="hint">支持直播间链接、抖音分享短链，以及当前核心可解析的主播主页链接。主播名可以留空。</p>
 
-def select_douyin_record_url(m3u8_url: str | None, flv_url: str | None,
-                             audio_probe=probe_stream_has_audio, warning=logger.warning) -> str | None:
-    """Prefer the Douyin source that actually contains an audio stream."""
-    m3u8_has_audio = audio_probe(m3u8_url) if m3u8_url else False
-    flv_has_audio = audio_probe(flv_url) if flv_url else False
+    <form
+      class="anchor-add"
+      method="post"
+      action="{{ url_for('add_anchor') }}"
+    >
+      <input
+        type="text"
+        name="anchor_url"
+        placeholder="粘贴主播主页 / 分享短链 / 直播间链接"
+        required
+      >
+      <input
+        type="text"
+        name="anchor_name"
+        placeholder="主播名（可选）"
+      >
+      <button type="submit">添加</button>
+    </form>
+  </section>
 
-    if m3u8_has_audio is True:
-        return m3u8_url
-    if flv_has_audio is True:
-        return flv_url
+  <section class="card">
+    <h2>已添加主播</h2>
 
-    warning(
-        "抖音 M3U8 和 FLV 直播源均未检测到音轨"
-        f"（M3U8={m3u8_has_audio}, FLV={flv_has_audio}），将使用原有优先级继续录制"
-    )
-    return m3u8_url or flv_url
+    {% if monitor_items %}
+      {% for item in monitor_items %}
+      <div class="anchor-row">
+        <div>
+          <strong>{{ item.name }}</strong>
+          <div class="small">{{ item.platform }} · {{ item.url }}</div>
+        </div>
 
+        <form
+          method="post"
+          action="{{ url_for('delete_anchor', index=loop.index0) }}"
+          onsubmit="return confirm('确定删除这个主播吗？')"
+        >
+          <button class="delete-btn" type="submit">删除</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">还没有添加主播</div>
+    {% endif %}
 
-def get_quality_index(quality) -> tuple:
-    if not quality:
-        return list(QUALITY_MAPPING.items())[0]
+    <details class="advanced">
+      <summary>高级编辑原始配置</summary>
 
-    quality_str = str(quality).upper()
-    if quality_str.isdigit():
-        quality_int = int(quality_str[0])
-        quality_str = list(QUALITY_MAPPING.keys())[quality_int]
-    return quality_str, QUALITY_MAPPING.get(quality_str, 0)
+      <form method="post">
+        <div class="form-group">
+          <textarea name="url_config_content">{{ url_config_content }}</textarea>
+        </div>
+        <button class="btn" type="submit">保存原始配置</button>
+      </form>
+    </details>
+  </section>
 
+  {% elif active_tab == 'recordings' %}
+  <section class="card">
+    <div class="section-head"><div><h2>录像管理</h2><p class="hint">仅显示 downloads 内的录像和音频文件。</p></div><button class="refresh" type="button" onclick="loadRecordings()">刷新</button></div>
+    <div id="recording-list" class="recording-list"><div class="empty">正在加载录像…</div></div>
+  </section>
 
-@trace_error_decorator
-async def get_douyin_stream_url(json_data: dict, video_quality: str) -> dict:
-    anchor_name = json_data.get('anchor_name')
+  {% elif active_tab == 'settings' %}
+  <section class="card">
+    <h2>设置</h2>
+    <div class="settings-grid">
+      <a href="{{ url_for('push_settings_page') }}"><b>推送设置</b><span>开播、关播与通知渠道</span></a>
+      <a href="{{ url_for('cookie_settings_page') }}"><b>Cookie</b><span>各平台登录 Cookie</span></a>
+      <a href="{{ url_for('account_settings_page') }}"><b>账号密码</b><span>平台账号相关配置</span></a>
+      <a href="{{ url_for('xiaolan_webdav_page') }}"><b>小蓝网盘</b><span>WebDAV 自动上传配置</span></a>
+    </div>
+  </section>
 
-    result = {
-        "anchor_name": anchor_name,
-        "is_live": False,
+  {% else %}
+  <div class="subnav">
+    <a href="{{ url_for('recording_settings_page') }}" class="{{ 'active' if active_tab=='recording_settings' else '' }}">录制设置</a>
+    <a href="{{ url_for('push_settings_page') }}" class="{{ 'active' if active_tab=='push_settings' else '' }}">推送</a>
+    <a href="{{ url_for('cookie_settings_page') }}" class="{{ 'active' if active_tab=='cookie_settings' else '' }}">Cookie</a>
+    <a href="{{ url_for('account_settings_page') }}" class="{{ 'active' if active_tab=='account_settings' else '' }}">账号密码</a>
+    <a href="{{ url_for('xiaolan_webdav_page') }}" class="{{ 'active' if active_tab=='xiaolan_webdav' else '' }}">小蓝网盘</a>
+  </div>
+  <section class="card">
+    <h2>{{ section }}</h2>
+    {% if active_tab == 'xiaolan_webdav' %}<p class="hint">录像转为 MP4 后可上传；建议先测试连接，再开启自动上传。</p>{% endif %}
+    <form method="post">
+      {% for key, value in config.items(section) %}
+      <div class="form-group">
+        <label>{{ key }}</label>
+        {% if value in ['是','否'] %}
+          <select name="{{ key }}"><option value="是" {{ 'selected' if value=='是' else '' }}>是</option><option value="否" {{ 'selected' if value=='否' else '' }}>否</option></select>
+        {% elif '密码' in key or 'token' in key.lower() or '令牌' in key %}
+          <input type="password" name="{{ key }}" value="{{ value }}">
+        {% else %}
+          <input type="text" name="{{ key }}" value="{{ value }}">
+        {% endif %}
+      </div>
+      {% endfor %}
+      <button class="btn" type="submit">保存设置</button>
+    </form>
+    {% if active_tab == 'xiaolan_webdav' %}
+      <button class="btn secondary" id="webdav-test" type="button">测试 WebDAV 连接</button>
+      <div id="webdav-result" class="hint"></div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+
+<script>
+function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML}
+function attr(s){return esc(s).replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+const labels={waiting:'等待',checking:'检测中',running:'监控中',error:'错误',disabled:'已停用',unknown:'未知',offline:'未开播',suspected_live:'疑似开播',live:'直播中',suspected_offline:'疑似下播',idle:'未录制',starting:'启动中',recording:'录制中',recovering:'恢复中',stopping:'停止中',completed:'已完成',interrupted:'已中断'};
+let currentData={monitors:[],events:[]};
+function label(v){return labels[v]||v||'未知'}
+function timeText(v){if(!v)return'--';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString()}
+function duration(v){if(!v)return'--';const sec=Math.max(0,Math.floor((Date.now()-new Date(v).getTime())/1000));if(!Number.isFinite(sec))return'--';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+function eventText(e){const t=e.timestamp?timeText(e.timestamp).split(' ').pop():'';return [t,e.streamer_name,e.message].filter(Boolean).join(' · ')}
+function showDetail(index){
+  const x=currentData.monitors[index];if(!x)return;
+  const related=currentData.events.filter(e=>e.streamer_id===x.url).slice(0,8);
+  document.getElementById('detail-title').textContent=x.name;
+  document.getElementById('detail-content').innerHTML=`<div class="detail-grid">
+    <div class="detail-item"><small>监控状态</small>${esc(label(x.monitor_status))}</div><div class="detail-item"><small>直播状态</small>${esc(label(x.live_status))}</div>
+    <div class="detail-item"><small>录制状态</small>${esc(label(x.recording_status))}</div><div class="detail-item"><small>最近检测</small>${esc(timeText(x.last_checked_at))}</div>
+    <div class="detail-item"><small>最近成功检测</small>${esc(timeText(x.last_success_at))}</div><div class="detail-item"><small>开播时间</small>${esc(timeText(x.live_started_at))}</div>
+    <div class="detail-item"><small>当前录制时长</small>${esc(x.recording_status==='recording'?duration(x.recording_started_at):'--')}</div><div class="detail-item"><small>当前录制文件</small>${esc(x.recording_file||'--')}</div>
+    <div class="detail-item"><small>最近错误</small>${esc(x.last_error||'无')}</div><div class="detail-item"><small>直播地址</small>${esc(x.url)}</div></div>
+    <h3>最近事件</h3>${related.length?`<ul class="detail-events">${related.map(e=>`<li>${esc(eventText(e))}</li>`).join('')}</ul>`:'<div class="empty">暂无事件</div>'}`;
+  document.getElementById('detail-dialog').showModal();
+}
+function closeDetail(){document.getElementById('detail-dialog').close()}
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});
+    const d=await r.json();
+    currentData=d;
+    const service=document.getElementById('service');
+    if(service)service.textContent=(d.service_running?'● 录制服务运行中':'○ WebUI 已启动')+' · '+d.updated_at.slice(11);
+    for(const k of ['total','live','recording','error']){
+      const e=document.getElementById('s-'+k); if(e)e.textContent=d.counts[k]??0;
     }
+    const box=document.getElementById('monitor-list');
+    if(box)box.innerHTML=d.monitors.length?d.monitors.map((x,i)=>`<article class="monitor"><div class="monitor-head"><div class="monitor-title"><div class="monitor-name">${esc(x.name)}</div><div class="meta">${esc(x.platform)}</div></div><div class="badge-row"><span class="badge ${esc(x.monitor_status)}">${esc(label(x.monitor_status))}</span><span class="badge ${esc(x.live_status)}">${esc(label(x.live_status))}</span><span class="badge ${esc(x.recording_status)}">录制：${esc(label(x.recording_status))}</span></div></div><div class="monitor-meta"><div class="meta">最近检测：${esc(timeText(x.last_checked_at))}</div><div class="meta">录制时长：${esc(x.recording_status==='recording'?duration(x.recording_started_at):'--')}</div>${x.last_error?`<div class="meta error-text">最近错误：${esc(x.last_error)}</div>`:''}</div><div class="monitor-actions"><button class="detail-btn" type="button" onclick="showDetail(${i})">查看详情</button>${['starting','recording','recovering'].includes(x.recording_status)?`<button class="stop-btn" type="button" onclick="stopRecording(${i},this)">停止录制</button>`:''}</div></article>`).join(''):'<div class="empty">还没有添加主播，请到“主播”页面添加地址。</div>';
+    const ev=document.getElementById('events');
+    if(ev)ev.innerHTML=d.events.length?d.events.map(x=>`<div class="event">${esc(eventText(x))}</div>`).join(''):'<div class="empty">暂无事件</div>';
+  }catch(e){const service=document.getElementById('service');if(service)service.textContent='状态读取失败'}
+}
+loadStatus();setInterval(loadStatus,5000);
 
-    status = json_data.get("status", 4)
+async function stopRecording(index,button){
+  const item=currentData.monitors[index];if(!item||!confirm(`确定停止“${item.name}”当前录制吗？`))return;
+  button.disabled=true;button.textContent='正在停止…';
+  try{
+    const r=await fetch('/api/recordings/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:item.url})});
+    const d=await r.json();if(!r.ok)throw new Error(d.message||'停止失败');
+    await loadStatus();
+  }catch(e){alert(e.message||'停止请求失败');button.disabled=false;button.textContent='停止录制'}
+}
 
-    if status == 2:
-        stream_url = json_data['stream_url']
-        flv_url_dict = stream_url['flv_pull_url']
-        flv_url_list: list = list(flv_url_dict.values())
-        m3u8_url_dict = stream_url['hls_pull_url_map']
-        m3u8_url_list: list = list(m3u8_url_dict.values())
+function fileSize(bytes){if(!Number.isFinite(bytes))return'--';const units=['B','KB','MB','GB','TB'];let n=bytes,i=0;while(n>=1024&&i<units.length-1){n/=1024;i++}return`${n.toFixed(i?1:0)} ${units[i]}`}
+let recordingRefreshTimer=null;
+async function loadRecordings(showLoading=true){
+  const box=document.getElementById('recording-list');if(!box)return;
+  if(showLoading)box.innerHTML='<div class="empty">正在加载录像…</div>';
+  try{
+    const r=await fetch('/api/recordings',{cache:'no-store'}),d=await r.json();
+    box.innerHTML=d.recordings.length?d.recordings.map((x,i)=>{const status=x.recording_status||'completed',statusText=status==='recording'?'● 正在录制':status==='stopping'?'● 停止中':status==='starting'?'● 启动中':status==='recovering'?'● 恢复中':'已完成';return`<article class="recording-item"><div class="recording-name" title="${attr(x.name)}">${esc(x.name)}</div><div class="recording-path" title="${attr(x.directory)}">目录：${esc(x.directory)}</div><div class="recording-meta">${esc(fileSize(x.size))} · ${esc(timeText(x.modified_at))}</div><div class="recording-status ${attr(status)}">${esc(statusText)}</div><div class="recording-actions"><button class="recording-delete" type="button" ${x.is_recording?'disabled':''} onclick="deleteRecording(${i},this)">${x.is_recording?'录制中':'删除'}</button></div></article>`}).join(''):'<div class="empty">暂无录像</div>';
+    box._items=d.recordings;
+    const hasActive=d.recordings.some(x=>x.is_recording);
+    if(hasActive&&!recordingRefreshTimer)recordingRefreshTimer=setInterval(()=>loadRecordings(false),8000);
+    if(!hasActive&&recordingRefreshTimer){clearInterval(recordingRefreshTimer);recordingRefreshTimer=null}
+  }catch(e){box.innerHTML='<div class="empty error-text">录像读取失败</div>'}
+}
+async function deleteRecording(index,button){
+  const box=document.getElementById('recording-list'),item=box?._items?.[index];if(!item||!confirm(`确定删除“${item.name}”吗？删除后无法恢复。`))return;
+  button.disabled=true;button.textContent='删除中…';
+  try{
+    const r=await fetch('/api/recordings/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:item.path})});
+    const d=await r.json();if(!r.ok)throw new Error(d.message||'删除失败');await loadRecordings();
+  }catch(e){alert(e.message||'删除请求失败');button.disabled=false;button.textContent='删除'}
+}
+loadRecordings();
 
-        while len(flv_url_list) < 5:
-            flv_url_list.append(flv_url_list[-1])
-            m3u8_url_list.append(m3u8_url_list[-1])
+const debugDetails=document.getElementById('debug-details');
+if(debugDetails)debugDetails.addEventListener('toggle',async()=>{if(!debugDetails.open)return;const box=document.getElementById('raw-logs');try{const r=await fetch('/api/logs?limit=120',{cache:'no-store'});const d=await r.json();box.textContent=d.lines.length?d.lines.join('\n'):'暂无日志'}catch(e){box.textContent='日志读取失败'}});
 
-        video_quality, quality_index = get_quality_index(video_quality)
-        m3u8_url = m3u8_url_list[quality_index]
-        flv_url = flv_url_list[quality_index]
-        result |= {
-            'is_live': True,
-            'title': json_data['title'],
-            'quality': video_quality,
-            'm3u8_url': m3u8_url,
-            'flv_url': flv_url,
-            'record_url': m3u8_url or flv_url,
-        }
-    return result
+const testBtn=document.getElementById('webdav-test');
+if(testBtn)testBtn.addEventListener('click',async()=>{
+  const result=document.getElementById('webdav-result');
+  testBtn.disabled=true;testBtn.textContent='正在测试…';result.textContent='';
+  try{
+    const r=await fetch('/xiaolan_webdav/test',{method:'POST'});
+    const d=await r.json();result.textContent=d.message||'测试完成';
+  }catch(e){result.textContent='测试请求失败'}
+  finally{testBtn.disabled=false;testBtn.textContent='测试 WebDAV 连接'}
+});
 
-
-@trace_error_decorator
-async def get_tiktok_stream_url(json_data: dict, video_quality: str) -> dict:
-    if not json_data:
-        return {"anchor_name": None, "is_live": False}
-
-    def get_video_quality_url(stream, q_key) -> list:
-        play_list = []
-        for key in stream:
-            url_info = stream[key]['main']
-            play_url = url_info[q_key]
-            sdk_params = url_info['sdk_params']
-            sdk_params = json.loads(sdk_params)
-            vbitrate = int(sdk_params['vbitrate'])
-            resolution = sdk_params['resolution']
-            if vbitrate != 0 and resolution:
-                width, height = map(int, resolution.split('x'))
-                play_list.append({'url': play_url, 'vbitrate': vbitrate, 'resolution': (width, height)})
-
-        play_list.sort(key=itemgetter('vbitrate'), reverse=True)
-        play_list.sort(key=lambda x: (-x['vbitrate'], -x['resolution'][0], -x['resolution'][1]))
-        return play_list
-
-    live_room = json_data['LiveRoom']['liveRoomUserInfo']
-    user = live_room['user']
-    anchor_name = f"{user['nickname']}-{user['uniqueId']}"
-    status = user.get("status", 4)
-
-    result = {
-        "anchor_name": anchor_name,
-        "is_live": False,
-    }
-
-    if status == 2:
-        stream_data = live_room['liveRoom']['streamData']['pull_data']['stream_data']
-        stream_data = json.loads(stream_data).get('data', {})
-        flv_url_list = get_video_quality_url(stream_data, 'flv')
-        m3u8_url_list = get_video_quality_url(stream_data, 'hls')
-
-        while len(flv_url_list) < 5:
-            flv_url_list.append(flv_url_list[-1])
-        while len(m3u8_url_list) < 5:
-            m3u8_url_list.append(m3u8_url_list[-1])
-        video_quality, quality_index = get_quality_index(video_quality)
-        flv_url = flv_url_list[quality_index]['url'].replace("https://", "http://")
-        m3u8_url = m3u8_url_list[quality_index]['url'].replace("https://", "http://")
-        result |= {
-            'is_live': True,
-            'title': live_room['liveRoom']['title'],
-            'quality': video_quality,
-            'm3u8_url': m3u8_url,
-            'flv_url': flv_url,
-            'record_url': m3u8_url or flv_url,
-        }
-    return result
-
-
-@trace_error_decorator
-async def get_kuaishou_stream_url(json_data: dict, video_quality: str) -> dict:
-    if json_data['type'] == 1 and not json_data["is_live"]:
-        return json_data
-    live_status = json_data['is_live']
-
-    result = {
-        "type": 2,
-        "anchor_name": json_data['anchor_name'],
-        "is_live": live_status,
-    }
-
-    if live_status:
-        quality_mapping_bit = {'OD': 99999, 'BD': 4000, 'UHD': 2000, 'HD': 1000, 'SD': 800, 'LD': 600}
-        if video_quality in QUALITY_MAPPING:
-
-            quality, quality_index = get_quality_index(video_quality)
-            if 'm3u8_url_list' in json_data:
-                m3u8_url_list = json_data['m3u8_url_list'][::-1]
-                while len(m3u8_url_list) < 5:
-                    m3u8_url_list.append(m3u8_url_list[-1])
-                m3u8_url = m3u8_url_list[quality_index]['url']
-                result['m3u8_url'] = m3u8_url
-
-            if 'flv_url_list' in json_data:
-                if 'bitrate' in json_data['flv_url_list'][0]:
-                    flv_url_list = json_data['flv_url_list']
-                    flv_url_list = sorted(flv_url_list, key=lambda x: x['bitrate'], reverse=True)
-                    quality_str = str(video_quality).upper()
-                    if quality_str.isdigit():
-                        video_quality, quality_index_bitrate_value = list(quality_mapping_bit.items())[int(quality_str)]
-                    else:
-                        quality_index_bitrate_value = quality_mapping_bit.get(quality_str, 99999)
-                        video_quality = quality_str
-                    quality_index = next(
-                        (i for i, x in enumerate(flv_url_list) if x['bitrate'] <= quality_index_bitrate_value), None)
-                    if quality_index is None:
-                        quality_index = len(flv_url_list) - 1
-                    flv_url = flv_url_list[quality_index]['url']
-
-                    result['flv_url'] = flv_url
-                    result['record_url'] = flv_url
-                else:
-                    flv_url_list = json_data['flv_url_list'][::-1]
-                    while len(flv_url_list) < 5:
-                        flv_url_list.append(flv_url_list[-1])
-                    flv_url = flv_url_list[quality_index]['url']
-                    result |= {'flv_url': flv_url, 'record_url': flv_url}
-            result['is_live'] = True
-            result['quality'] = video_quality
-    return result
-
-
-@trace_error_decorator
-async def get_huya_stream_url(json_data: dict, video_quality: str) -> dict:
-    game_live_info = json_data['data'][0]['gameLiveInfo']
-    live_title = game_live_info['introduction']
-    stream_info_list = json_data['data'][0]['gameStreamInfoList']
-    anchor_name = game_live_info.get('nick', '')
-
-    result = {
-        "anchor_name": anchor_name,
-        "is_live": False,
-    }
-
-    if stream_info_list:
-        select_cdn = stream_info_list[0]
-        flv_url = select_cdn.get('sFlvUrl')
-        stream_name = select_cdn.get('sStreamName')
-        flv_url_suffix = select_cdn.get('sFlvUrlSuffix')
-        hls_url = select_cdn.get('sHlsUrl')
-        hls_url_suffix = select_cdn.get('sHlsUrlSuffix')
-        flv_anti_code = select_cdn.get('sFlvAntiCode')
-
-        def get_anti_code(old_anti_code: str) -> str:
-
-            # js地址：https://hd.huya.com/cdn_libs/mobile/hysdk-m-202402211431.js
-
-            params_t = 100
-            sdk_version = 2403051612
-
-            # sdk_id是13位数毫秒级时间戳
-            t13 = int(time.time()) * 1000
-            sdk_sid = t13
-
-            # 计算uuid和uid参数值
-            init_uuid = (int(t13 % 10 ** 10 * 1000) + int(1000 * random.random())) % 4294967295  # 直接初始化
-            uid = random.randint(1400000000000, 1400009999999)  # 经过测试uid也可以使用init_uuid代替
-            seq_id = uid + sdk_sid  # 移动端请求的直播流地址中包含seqId参数
-
-            # 计算ws_time参数值(16进制) 可以是当前毫秒时间戳，当然也可以直接使用url_query['wsTime'][0]
-            # 原始最大误差不得慢240000毫秒
-            target_unix_time = (t13 + 110624) // 1000
-            ws_time = f"{target_unix_time:x}".lower()
-
-            # fm参数值是经过url编码然后base64编码得到的，解码结果类似 DWq8BcJ3h6DJt6TY_$0_$1_$2_$3
-            # 具体细节在上面js中查看，大概在32657行代码开始，有base64混淆代码请自行替换
-            url_query = urllib.parse.parse_qs(old_anti_code)
-            ws_secret_pf = base64.b64decode(urllib.parse.unquote(url_query['fm'][0]).encode()).decode().split("_")[0]
-            ws_secret_hash = hashlib.md5(f'{seq_id}|{url_query["ctype"][0]}|{params_t}'.encode()).hexdigest()
-            ws_secret = f'{ws_secret_pf}_{uid}_{stream_name}_{ws_secret_hash}_{ws_time}'
-            ws_secret_md5 = hashlib.md5(ws_secret.encode()).hexdigest()
-
-            anti_code = (
-                f'wsSecret={ws_secret_md5}&wsTime={ws_time}&seqid={seq_id}&ctype={url_query["ctype"][0]}&ver=1'
-                f'&fs={url_query["fs"][0]}&uuid={init_uuid}&u={uid}&t={params_t}&sv={sdk_version}'
-                f'&sdk_sid={sdk_sid}&codec=264'
-            )
-            return anti_code
-
-        new_anti_code = get_anti_code(flv_anti_code)
-        flv_url = f'{flv_url}/{stream_name}.{flv_url_suffix}?{new_anti_code}&ratio='
-        m3u8_url = f'{hls_url}/{stream_name}.{hls_url_suffix}?{new_anti_code}&ratio='
-
-        quality_list = flv_anti_code.split('&exsphd=')
-        if len(quality_list) > 1 and video_quality not in ["OD", "BD"]:
-            pattern = r"(?<=264_)\d+"
-            quality_list = list(re.findall(pattern, quality_list[1]))[::-1]
-            while len(quality_list) < 5:
-                quality_list.append(quality_list[-1])
-
-            video_quality_options = {
-                "UHD": quality_list[0],
-                "HD": quality_list[1],
-                "SD": quality_list[2],
-                "LD": quality_list[3]
-            }
-
-            if video_quality not in video_quality_options:
-                raise ValueError(
-                    f"Invalid video quality. Available options are: {', '.join(video_quality_options.keys())}")
-
-            flv_url = flv_url + str(video_quality_options[video_quality])
-            m3u8_url = m3u8_url + str(video_quality_options[video_quality])
-
-        result |= {
-            'is_live': True,
-            'title': live_title,
-            'quality': video_quality,
-            'm3u8_url': m3u8_url,
-            'flv_url': flv_url,
-            'record_url': flv_url or m3u8_url
-        }
-    return result
-
-
-@trace_error_decorator
-async def get_douyu_stream_url(json_data: dict, video_quality: str, cookies: str, proxy_addr: str) -> dict:
-    if not json_data["is_live"]:
-        return json_data
-
-    video_quality_options = {
-        "OD": '0',
-        "BD": '0',
-        "UHD": '3',
-        "HD": '2',
-        "SD": '1',
-        "LD": '1'
-    }
-
-    rid = str(json_data["room_id"])
-    json_data.pop("room_id")
-    rate = video_quality_options.get(video_quality, '0')
-    flv_data = await get_douyu_stream_data(rid, rate, cookies=cookies, proxy_addr=proxy_addr)
-    rtmp_url = flv_data['data'].get('rtmp_url')
-    rtmp_live = flv_data['data'].get('rtmp_live')
-    if rtmp_live:
-        flv_url = f'{rtmp_url}/{rtmp_live}'
-        json_data |= {'quality': video_quality, 'flv_url': flv_url, 'record_url': flv_url}
-    return json_data
-
-
-@trace_error_decorator
-async def get_yy_stream_url(json_data: dict) -> dict:
-    anchor_name = json_data.get('anchor_name', '')
-    result = {
-        "anchor_name": anchor_name,
-        "is_live": False,
-    }
-    if 'avp_info_res' in json_data:
-        stream_line_addr = json_data['avp_info_res']['stream_line_addr']
-        cdn_info = list(stream_line_addr.values())[0]
-        flv_url = cdn_info['cdn_info']['url']
-        result |= {
-            'is_live': True,
-            'title': json_data['title'],
-            'quality': 'OD',
-            'flv_url': flv_url,
-            'record_url': flv_url
-        }
-    return result
-
-
-@trace_error_decorator
-async def get_bilibili_stream_url(json_data: dict, video_quality: str, proxy_addr: str, cookies: str) -> dict:
-    anchor_name = json_data["anchor_name"]
-    if not json_data["live_status"]:
-        return {
-            "anchor_name": anchor_name,
-            "is_live": False
-        }
-
-    room_url = json_data['room_url']
-
-    video_quality_options = {
-        "OD": '10000',
-        "BD": '400',
-        "UHD": '250',
-        "HD": '150',
-        "SD": '80',
-        "LD": '80'
-    }
-
-    select_quality = video_quality_options[video_quality]
-    play_url = await get_bilibili_stream_data(
-        room_url, qn=select_quality, platform='web', proxy_addr=proxy_addr, cookies=cookies)
-    return {
-        'anchor_name': json_data['anchor_name'],
-        'is_live': True,
-        'title': json_data['title'],
-        'quality': video_quality,
-        'record_url': play_url
-    }
-
-
-@trace_error_decorator
-async def get_netease_stream_url(json_data: dict, video_quality: str) -> dict:
-    if not json_data['is_live']:
-        return json_data
-
-    m3u8_url = json_data['m3u8_url']
-    flv_url = None
-    if json_data.get('stream_list'):
-        stream_list = json_data['stream_list']['resolution']
-        order = ['blueray', 'ultra', 'high', 'standard']
-        sorted_keys = [key for key in order if key in stream_list]
-        while len(sorted_keys) < 5:
-            sorted_keys.append(sorted_keys[-1])
-        video_quality, quality_index = get_quality_index(video_quality)
-        selected_quality = sorted_keys[quality_index]
-        flv_url_list = stream_list[selected_quality]['cdn']
-        selected_cdn = list(flv_url_list.keys())[0]
-        flv_url = flv_url_list[selected_cdn]
-
-    return {
-        "is_live": True,
-        "anchor_name": json_data['anchor_name'],
-        "title": json_data['title'],
-        'quality': video_quality,
-        "m3u8_url": m3u8_url,
-        "flv_url": flv_url,
-        "record_url": flv_url or m3u8_url
-    }
-
-
-async def get_stream_url(json_data: dict, video_quality: str, url_type: str = 'm3u8', spec: bool = False,
-                         hls_extra_key: str | int = None, flv_extra_key: str | int = None) -> dict:
-    if not json_data['is_live']:
-        return json_data
-
-    play_url_list = json_data['play_url_list']
-    while len(play_url_list) < 5:
-        play_url_list.append(play_url_list[-1])
-
-    video_quality, selected_quality = get_quality_index(video_quality)
-    data = {
-        "anchor_name": json_data['anchor_name'],
-        "is_live": True
-    }
-
-    def get_url(key):
-        play_url = play_url_list[selected_quality]
-        return play_url[key] if key else play_url
-
-    if url_type == 'all':
-        m3u8_url = get_url(hls_extra_key)
-        flv_url = get_url(flv_extra_key)
-        data |= {
-            "m3u8_url": json_data['m3u8_url'] if spec else m3u8_url,
-            "flv_url": json_data['flv_url'] if spec else flv_url,
-            "record_url": m3u8_url
-        }
-    elif url_type == 'm3u8':
-        m3u8_url = get_url(hls_extra_key)
-        data |= {"m3u8_url": json_data['m3u8_url'] if spec else m3u8_url, "record_url": m3u8_url}
-    else:
-        flv_url = get_url(flv_extra_key)
-        data |= {"flv_url": flv_url, "record_url": flv_url}
-    data['title'] = json_data.get('title')
-    data['quality'] = video_quality
-    return data
+const p=new URLSearchParams(location.search);
+if(p.get('success')==='true'){
+  const t=document.createElement('div');t.className='toast';t.textContent='保存成功';document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2200);history.replaceState({},'',location.pathname);
+}
+</script>
+</body>
+</html>

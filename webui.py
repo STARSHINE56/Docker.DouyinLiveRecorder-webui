@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePath
 from urllib.parse import urlparse
 
@@ -22,6 +22,8 @@ LOG_FILES = (
 )
 DOWNLOADS_DIR = Path(os.environ.get("DLR_DOWNLOADS_DIR", "/app/downloads"))
 RECORDING_EXTENSIONS = {".mp4", ".flv", ".ts", ".mkv", ".mov", ".m4v", ".webm", ".mp3", ".m4a"}
+LIVE_STATUS_STALE_SECONDS = 120
+ACTIVE_RECORDING_STATUSES = {"starting", "recording", "recovering", "stopping"}
 
 recording_process = None
 recording_process_lock = threading.Lock()
@@ -299,6 +301,21 @@ def get_monitor_snapshot():
                 item[key] = persisted[key]
         if persisted.get("name") and item["name"] in {"待识别主播", "等待获取主播名"}:
             item["name"] = persisted["name"]
+        # Display-only stale guard. A completed/manual-stop recording is not
+        # evidence that the streamer went offline, so degrade to unknown only.
+        if (
+            item.get("live_status") == "live"
+            and item.get("recording_status") not in ACTIVE_RECORDING_STATUSES
+        ):
+            try:
+                last_success = datetime.fromisoformat(item.get("last_success_at") or "")
+                if last_success.tzinfo is None:
+                    last_success = last_success.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - last_success.astimezone(timezone.utc)).total_seconds()
+            except (TypeError, ValueError):
+                age = LIVE_STATUS_STALE_SECONDS + 1
+            if age > LIVE_STATUS_STALE_SECONDS:
+                item["live_status"] = "unknown"
         # Display-only normalization: offline + interrupted → idle.
         # Keeps historical interrupted events; does not mutate runtime state.
         if item.get("live_status") == "offline" and item.get("recording_status") == "interrupted":
