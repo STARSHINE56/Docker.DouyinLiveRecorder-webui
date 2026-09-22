@@ -23,6 +23,15 @@ _SHORT_URL_CACHE: dict[str, dict] = {}
 _SEC_ID_RE = re.compile(r"MS4wLj[A-Za-z0-9_-]+")
 
 
+def _sanitize_headers(headers: dict) -> dict:
+    """Remove edge whitespace rejected by httpx/h11 header validation."""
+    return {
+        key.strip() if isinstance(key, (str, bytes)) else key:
+        value.strip() if isinstance(value, (str, bytes)) else value
+        for key, value in headers.items()
+    }
+
+
 def extract_douyin_identifiers(value: str) -> dict:
     """Extract stable Douyin identifiers without depending on page layout."""
     raw = (value or "").strip()
@@ -57,7 +66,7 @@ async def resolve_douyin_short_url(url: str, proxy_addr: str | None = None,
     """Resolve v.douyin via HEAD, then a redirect-following GET fallback."""
     if url in _SHORT_URL_CACHE:
         return dict(_SHORT_URL_CACHE[url])
-    headers = headers or HEADERS
+    headers = _sanitize_headers(headers or HEADERS)
     proxy_addr = utils.handle_proxy_addr(proxy_addr)
     final_url = ""
     async with httpx.AsyncClient(proxy=proxy_addr, timeout=15, follow_redirects=False) as client:
@@ -102,7 +111,7 @@ async def fetch_douyin_user_profile(sec_user_id: str, proxy_addr: str | None = N
     callers fall back to page parsing instead of treating an empty profile as
     success.
     """
-    headers = headers or HEADERS_PC
+    headers = _sanitize_headers(headers or HEADERS_PC)
     params = {"device_platform": "webapp", "aid": "6383", "sec_user_id": sec_user_id}
     api = "https://www.douyin.com/aweme/v1/web/user/profile/other/"
     proxy_addr = utils.handle_proxy_addr(proxy_addr)
@@ -209,7 +218,7 @@ async def fetch_douyin_user_page(value: str, proxy_addr: str | None = None,
     page_url = value if value.startswith("http") else f"https://www.douyin.com/user/{urllib.parse.quote(value)}"
     proxy = utils.handle_proxy_addr(proxy_addr)
     async with httpx.AsyncClient(proxy=proxy, timeout=15, follow_redirects=True) as client:
-        response = await client.get(page_url, headers=headers or HEADERS_PC)
+        response = await client.get(page_url, headers=_sanitize_headers(headers or HEADERS_PC))
         response.raise_for_status()
         html = response.text
 
@@ -267,26 +276,27 @@ async def resolve_douyin_profile(value: str, proxy_addr: str | None = None,
     raise ValueError(f"无法识别抖音地址或账号: {raw}")
 
 
-HEADERS = {
+HEADERS = _sanitize_headers({
     'User-Agent': 'Mozilla/5.0 (Linux; Android 11; SAMSUNG SM-G973U) AppleWebKit/537.36 (KHTML, like Gecko) '
                   'SamsungBrowser/14.2 Chrome/87.0.4280.141 Mobile Safari/537.36',
     'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
     'Cookie': 's_v_web_id=verify_lk07kv74_QZYCUApD_xhiB_405x_Ax51_GYO9bUIyZQVf'
-}
+})
 
-HEADERS_PC = {
+HEADERS_PC = _sanitize_headers({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 '
                   'Safari/537.36 Core/1.116.438.400 QQBrowser/13.0.6070.400',
     'Cookie': 'sessionid=7494ae59ae06784454373ce25761e864; __ac_nonce=0670497840077ee4c9eb2; '
               '__ac_signature=_02B4Z6wo00f012DZczQAAIDCJJBb3EjnINdg-XeAAL8-db;  '
-              's_v_web_id=verify_m1ztgtjj_vuHnMLZD_iwZ9_4YO4_BdN1_7wLP3pyqXsf2; ',
-    }
+              's_v_web_id=verify_m1ztgtjj_vuHnMLZD_iwZ9_4YO4_BdN1_7wLP3pyqXsf2;',
+    })
 
 
 # X-bogus算法
 async def get_xbogus(url: str, headers: dict | None = None) -> str:
     if not headers or 'user-agent' not in (k.lower() for k in headers):
         headers = HEADERS
+    headers = _sanitize_headers(headers)
     query = urllib.parse.urlparse(url).query
     xbogus = execjs.compile(open(f'{JS_SCRIPT_PATH}/x-bogus.js').read()).call(
         'sign', query, headers.get("User-Agent", "user-agent"))
@@ -297,6 +307,7 @@ async def get_xbogus(url: str, headers: dict | None = None) -> str:
 async def get_sec_user_id(url: str, proxy_addr: str | None = None, headers: dict | None = None) -> tuple | None:
     if not headers or all(k.lower() not in ['user-agent', 'cookie'] for k in headers):
         headers = HEADERS
+    headers = _sanitize_headers(headers)
 
     try:
         proxy_addr = utils.handle_proxy_addr(proxy_addr)
@@ -322,6 +333,7 @@ async def get_sec_user_id(url: str, proxy_addr: str | None = None, headers: dict
 async def get_unique_id(url: str, proxy_addr: str | None = None, headers: dict | None = None) -> str | None:
     if not headers or all(k.lower() not in ['user-agent', 'cookie'] for k in headers):
         headers = HEADERS_PC
+    headers = _sanitize_headers(headers)
 
     try:
         proxy_addr = utils.handle_proxy_addr(proxy_addr)
@@ -349,6 +361,7 @@ async def get_live_room_id(room_id: str, sec_user_id: str, proxy_addr: str | Non
                            headers: dict | None = None) -> str:
     if not headers or all(k.lower() not in ['user-agent', 'cookie'] for k in headers):
         headers = HEADERS
+    headers = _sanitize_headers(headers)
 
     if not params:
         params = {

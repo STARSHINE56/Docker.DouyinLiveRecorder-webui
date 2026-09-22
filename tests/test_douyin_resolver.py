@@ -6,6 +6,16 @@ from streamget import room, spider, stream
 
 
 class DouyinIdentifierTests(unittest.TestCase):
+    def test_default_headers_have_no_edge_whitespace(self):
+        for headers in (room.HEADERS, room.HEADERS_PC):
+            for value in headers.values():
+                self.assertEqual(value, value.strip())
+
+    def test_header_sanitizer_strips_spaces_and_tabs(self):
+        headers = room._sanitize_headers({"Cookie": " sessionid=test; \t", "X-Test": " value\t"})
+        self.assertEqual(headers["Cookie"], "sessionid=test;")
+        self.assertEqual(headers["X-Test"], "value")
+
     def test_user_url(self):
         value = room.extract_douyin_identifiers("https://www.douyin.com/user/MS4wLjABAAAA_test?x=1")
         self.assertEqual(value["sec_user_id"], "MS4wLjABAAAA_test")
