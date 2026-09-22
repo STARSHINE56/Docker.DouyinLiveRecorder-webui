@@ -137,6 +137,48 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertEqual(item["recording_status"], "interrupted")
         self.assertIsNone(item["recording_pid"])
 
+    def test_manual_stop_blocks_recording_until_confirmed_offline(self):
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_recording_started(self.url, self.name, 1234, "/downloads/a.mp4")
+        success, _ = status_runtime.request_manual_stop(self.url)
+        self.assertTrue(success)
+        item = status_runtime.load_state()["monitors"][self.url]
+        self.assertTrue(item["manual_stop"])
+        self.assertEqual(item["recording_status"], "stopping")
+
+        status_runtime.mark_recording_finished(
+            self.url, self.name, 0, intentional=True, recover_if_live=False
+        )
+        status_runtime.release_recording_task(self.url)
+        self.assertFalse(status_runtime.claim_recording_task(self.url))
+        event_types = [e["type"] for e in status_runtime.load_state()["events"]]
+        self.assertIn("RECORDING_STOP_REQUESTED", event_types)
+        self.assertNotIn("RECORDING_RECOVERING", event_types)
+
+        self.assertEqual(status_runtime.update_live_status(self.url, self.name, False), "suspected_offline")
+        self.assertFalse(status_runtime.claim_recording_task(self.url))
+        self.assertEqual(status_runtime.update_live_status(self.url, self.name, False), "offline")
+        self.assertFalse(status_runtime.load_state()["monitors"][self.url]["manual_stop"])
+        self.assertTrue(status_runtime.claim_recording_task(self.url))
+        status_runtime.release_recording_task(self.url)
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        self.assertTrue(status_runtime.claim_recording_task(self.url))
+        status_runtime.release_recording_task(self.url)
+
+    def test_idle_and_direct_recording_stop_are_rejected(self):
+        success, message = status_runtime.request_manual_stop(self.url)
+        self.assertFalse(success)
+        self.assertIn("没有可停止", message)
+
+        status_runtime.update_live_status(self.url, self.name, True, stream_valid=True)
+        status_runtime.mark_recording_started(
+            self.url, self.name, 4321, "/downloads/a.flv", mode="direct"
+        )
+        success, message = status_runtime.request_manual_stop(self.url)
+        self.assertFalse(success)
+        self.assertIn("暂不支持", message)
+        self.assertFalse(status_runtime.load_state()["monitors"][self.url]["manual_stop"])
+
 
 
     def test_check_failed_clears_stale_live_status(self):
@@ -182,10 +224,14 @@ class WebUiSmokeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         status_runtime.reset_for_tests(Path(self.temp.name) / "runtime_state.json")
+        self.old_downloads_dir = webui.DOWNLOADS_DIR
+        webui.DOWNLOADS_DIR = Path(self.temp.name) / "downloads"
+        webui.DOWNLOADS_DIR.mkdir()
         webui.app.config.update(TESTING=True)
         self.client = webui.app.test_client()
 
     def tearDown(self):
+        webui.DOWNLOADS_DIR = self.old_downloads_dir
         self.temp.cleanup()
 
     def test_jinja_template_and_mobile_guards(self):
@@ -297,6 +343,66 @@ class WebUiSmokeTests(unittest.TestCase):
         with patch.object(webui, "read_log_lines", return_value=["debug"]):
             logs = self.client.get("/api/logs")
         self.assertEqual(logs.get_json()["lines"], ["debug"])
+
+    def test_recording_list_only_reads_downloads_and_sorts_newest_first(self):
+        older = webui.DOWNLOADS_DIR / "old.mp4"
+        nested = webui.DOWNLOADS_DIR / "主播" / "new.mkv"
+        nested.parent.mkdir()
+        older.write_bytes(b"old")
+        nested.write_bytes(b"newer")
+        older.touch()
+        nested.touch()
+        (webui.DOWNLOADS_DIR / "ignore.txt").write_text("no", encoding="utf-8")
+        outside = Path(self.temp.name) / "outside.mp4"
+        outside.write_bytes(b"outside")
+
+        response = self.client.get("/api/recordings")
+        self.assertEqual(response.status_code, 200)
+        paths = [item["path"] for item in response.get_json()["recordings"]]
+        self.assertEqual(set(paths), {"old.mp4", "主播/new.mkv"})
+        self.assertNotIn("outside.mp4", paths)
+
+    def test_recording_delete_rejects_traversal_and_directory(self):
+        outside = Path(self.temp.name) / "outside.mp4"
+        outside.write_bytes(b"keep")
+        response = self.client.post("/api/recordings/delete", json={"path": "../outside.mp4"})
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(outside.exists())
+
+        folder = webui.DOWNLOADS_DIR / "folder"
+        folder.mkdir()
+        response = self.client.post("/api/recordings/delete", json={"path": "folder"})
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(folder.exists())
+
+    def test_active_recording_cannot_be_deleted_but_normal_file_can(self):
+        active = webui.DOWNLOADS_DIR / "active.mp4"
+        normal = webui.DOWNLOADS_DIR / "normal.mp4"
+        active.write_bytes(b"active")
+        normal.write_bytes(b"normal")
+        url = "https://live.douyin.com/delete-test"
+        status_runtime.update_live_status(url, "删除测试", True, stream_valid=True)
+        status_runtime.mark_recording_started(url, "删除测试", 1234, str(active))
+
+        blocked = self.client.post("/api/recordings/delete", json={"path": "active.mp4"})
+        self.assertEqual(blocked.status_code, 409)
+        self.assertTrue(active.exists())
+        deleted = self.client.post("/api/recordings/delete", json={"path": "normal.mp4"})
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(normal.exists())
+
+    def test_stop_api_accepts_recording_and_rejects_idle(self):
+        url = "https://live.douyin.com/stop-test"
+        status_runtime.update_live_status(url, "停止测试", True, stream_valid=True)
+        status_runtime.mark_recording_started(url, "停止测试", 1234, "/downloads/a.mp4")
+        response = self.client.post("/api/recordings/stop", json={"url": url})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(status_runtime.load_state()["monitors"][url]["manual_stop"])
+
+        idle = self.client.post(
+            "/api/recordings/stop", json={"url": "https://live.douyin.com/idle"}
+        )
+        self.assertEqual(idle.status_code, 409)
 
 
 if __name__ == "__main__":
