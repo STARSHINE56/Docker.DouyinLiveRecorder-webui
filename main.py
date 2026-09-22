@@ -399,6 +399,11 @@ def run_script(command: str) -> None:
             print(stdout_decoded)
         if stderr_decoded.strip():
             print(stderr_decoded)
+        if process.returncode:
+            logger.error(f'录制后脚本执行失败，退出码: {process.returncode}')
+            raise subprocess.CalledProcessError(
+                process.returncode, command, output=stdout, stderr=stderr
+            )
     except PermissionError as e:
         logger.error(e)
         logger.error(f'脚本无执行权限!, 若是Linux环境, 请先执行:chmod +x your_script.sh 授予脚本可执行权限')
@@ -430,6 +435,29 @@ def run_post_record_script(script_command: str | None, record_name: str,
         ]
     run_script(script_command.strip() + ' ' + ' '.join(params))
     logger.debug("脚本命令执行结束!")
+
+
+def finalize_recording(record_name: str, save_file_path: str, save_type: str,
+                       script_command: str | None = None) -> None:
+    """Run the shared successful-recording post-processing path.
+
+    Post-record upload is deliberately best-effort: a failed custom/upload
+    script must never turn an already saved recording into a stream failure or
+    trigger the recovery loop.
+    """
+    if converts_to_mp4 and save_type == 'TS':
+        if split_video_by_time:
+            for path in recording_segment_paths(save_file_path):
+                converts_mp4(path, delete_origin_file)
+        else:
+            converts_mp4(save_file_path, delete_origin_file)
+
+    stop_time = time.strftime('%Y-%m-%d %H:%M:%S')
+    print(f"\n{record_name} {stop_time} 直播录制完成\n")
+    try:
+        run_post_record_script(script_command, record_name, save_file_path, save_type)
+    except Exception as exc:
+        logger.exception(f"[{record_name}] 录制后处理/上传失败，录像文件已保留: {exc}")
 
 
 def clear_record_info(record_name: str, record_url: str) -> None:
@@ -479,15 +507,20 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
             else:
                 process.send_signal(signal.SIGINT)
             process.wait()
-            recording.discard(record_name)
-            runtime_status.mark_recording_finished(
-                record_url,
-                anchor_name,
-                process.returncode or 0,
-                intentional=True,
-                recover_if_live=False,
-            )
-            runtime_status.release_recording_task(record_url)
+            try:
+                finalize_recording(
+                    record_name, save_file_path, save_type, script_command
+                )
+            finally:
+                recording.discard(record_name)
+                runtime_status.mark_recording_finished(
+                    record_url,
+                    anchor_name,
+                    process.returncode or 0,
+                    intentional=True,
+                    recover_if_live=False,
+                )
+                runtime_status.release_recording_task(record_url)
             return True
         if record_url in url_comments or exit_recording:
             color_obj.print_colored(f"[{record_name}]录制时已被注释,本条线程将会退出", color_obj.YELLOW)
@@ -508,19 +541,11 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
         time.sleep(1)
 
     return_code = process.returncode
-    stop_time = time.strftime('%Y-%m-%d %H:%M:%S')
     if return_code == 0:
-        if converts_to_mp4 and save_type == 'TS':
-            if split_video_by_time:
-                for path in recording_segment_paths(save_file_path):
-                    converts_mp4(path, delete_origin_file)
-            else:
-                converts_mp4(save_file_path, delete_origin_file)
-        print(f"\n{record_name} {stop_time} 直播录制完成\n")
-
-        run_post_record_script(script_command, record_name, save_file_path, save_type)
+        finalize_recording(record_name, save_file_path, save_type, script_command)
 
     else:
+        stop_time = time.strftime('%Y-%m-%d %H:%M:%S')
         color_obj.print_colored(f"\n{record_name} {stop_time} 直播录制出错,返回码: {return_code}\n", color_obj.RED)
 
     recording.discard(record_name)
@@ -1529,18 +1554,6 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 custom_script
                                             )
                                             if comment_end:
-                                                if converts_to_mp4:
-                                                    file_paths = utils.get_file_paths(os.path.dirname(save_file_path))
-                                                    prefix = os.path.basename(save_file_path).rsplit('_', maxsplit=1)[0]
-                                                    for path in file_paths:
-                                                        if prefix in path:
-                                                            try:
-                                                                threading.Thread(
-                                                                    target=converts_mp4,
-                                                                    args=(path, delete_origin_file)
-                                                                ).start()
-                                                            except subprocess.CalledProcessError as e:
-                                                                logger.error(f"转码失败: {e} ")
                                                 return
 
                                         except subprocess.CalledProcessError as e:
@@ -1573,9 +1586,6 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 custom_script
                                             )
                                             if comment_end:
-                                                threading.Thread(
-                                                    target=converts_mp4, args=(save_file_path, delete_origin_file)
-                                                ).start()
                                                 return
 
                                         except subprocess.CalledProcessError as e:
