@@ -60,7 +60,9 @@ def _default_monitor(url: str, name: str = "") -> dict[str, Any]:
         "recording_started_at": None,
         "recording_file": None,
         "recording_pid": None,
+        "recording_mode": None,
         "recording_recovery_pending": False,
+        "manual_stop": False,
         "last_error": None,
         "session_id": None,
         "offline_confirmations": 0,
@@ -192,6 +194,7 @@ def update_live_status(url: str, name: str, is_live: bool, *, stream_valid: bool
                 item["live_status"] = "suspected_offline"
                 return "suspected_offline"
             item["live_status"] = "offline"
+            item["manual_stop"] = False
             if item["recording_status"] not in {"idle", "completed", "error", "interrupted"}:
                 item["recording_status"] = "completed"
                 item["recording_pid"] = None
@@ -202,6 +205,7 @@ def update_live_status(url: str, name: str, is_live: bool, *, stream_valid: bool
 
         item["live_status"] = "offline"
         item["offline_confirmations"] = 0
+        item["manual_stop"] = False
         return "offline"
 
 
@@ -227,7 +231,9 @@ def mark_check_failed(url: str, name: str, error: str) -> None:
         _emit_locked(state, item, "CHECK_FAILED", "直播状态检测失败", once_per_session=False)
 
 
-def mark_recording_starting(url: str, name: str, file_path: str | None = None) -> None:
+def mark_recording_starting(
+    url: str, name: str, file_path: str | None = None, *, mode: str = "ffmpeg",
+) -> None:
     with _locked_state() as state:
         item = _monitor(state, url, name)
         # Preserve recovery intent across the real lifecycle transition
@@ -238,9 +244,12 @@ def mark_recording_starting(url: str, name: str, file_path: str | None = None) -
         )
         item["recording_status"] = "starting"
         item["recording_file"] = file_path
+        item["recording_mode"] = mode
 
 
-def mark_recording_started(url: str, name: str, pid: int, file_path: str) -> None:
+def mark_recording_started(
+    url: str, name: str, pid: int, file_path: str, *, mode: str = "ffmpeg",
+) -> None:
     with _locked_state() as state:
         item = _monitor(state, url, name)
         recovering = (
@@ -249,6 +258,7 @@ def mark_recording_started(url: str, name: str, pid: int, file_path: str) -> Non
         )
         item["recording_status"] = "recording"
         item["recording_pid"] = pid
+        item["recording_mode"] = mode
         item["recording_file"] = file_path
         item["recording_started_at"] = item.get("recording_started_at") or _now()
         item["recording_recovery_pending"] = False
@@ -277,9 +287,33 @@ def mark_recording_finished(
         item["recording_recovery_pending"] = False
         if item["recording_status"] == "error":
             item["last_error"] = f"FFmpeg 退出，代码 {return_code}"
-        message = "录制完成" if item["recording_status"] == "completed" else "录制异常结束"
+        if intentional and item.get("manual_stop"):
+            message = "手动停止录制"
+        else:
+            message = "录制完成" if item["recording_status"] == "completed" else "录制异常结束"
         _emit_locked(state, item, "RECORDING_ENDED", message)
         return item["recording_status"]
+
+
+def request_manual_stop(url: str) -> tuple[bool, str]:
+    """Request a cooperative stop for one FFmpeg recording only."""
+    with _locked_state() as state:
+        item = state["monitors"].get(url)
+        if not item or item.get("recording_status") not in {"starting", "recording", "recovering"}:
+            return False, "当前主播没有可停止的录制任务"
+        if item.get("recording_mode") == "direct":
+            return False, "当前录制模式暂不支持手动停止"
+        item["manual_stop"] = True
+        item["recording_status"] = "stopping"
+        item["recording_recovery_pending"] = False
+        _emit_locked(state, item, "RECORDING_STOP_REQUESTED", "手动请求停止录制")
+        return True, "正在停止录制"
+
+
+def is_manual_stop_requested(url: str) -> bool:
+    with _thread_lock:
+        item = _load_unlocked().get("monitors", {}).get(url, {})
+        return bool(item.get("manual_stop"))
 
 
 def run_direct_recording(
@@ -288,8 +322,8 @@ def run_direct_recording(
     """Bridge an in-process blocking recorder (such as urlretrieve) to runtime state."""
     if not claim_recording_task(url):
         return False
-    mark_recording_starting(url, name, file_path)
-    mark_recording_started(url, name, os.getpid(), file_path)
+    mark_recording_starting(url, name, file_path, mode="direct")
+    mark_recording_started(url, name, os.getpid(), file_path, mode="direct")
     try:
         recorder()
     except Exception:
@@ -342,7 +376,10 @@ def release_detection_task(url: str) -> None:
 
 
 def claim_recording_task(url: str) -> bool:
-    with _thread_lock:
+    with _locked_state() as state:
+        item = state.get("monitors", {}).get(url, {})
+        if item.get("manual_stop"):
+            return False
         if url in _active_recording_tasks:
             return False
         _active_recording_tasks.add(url)
