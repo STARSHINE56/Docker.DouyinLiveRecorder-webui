@@ -470,6 +470,25 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
         create_var[subs_thread_name].start()
 
     while process.poll() is None:
+        if runtime_status.is_manual_stop_requested(record_url):
+            logger.info(f"[{anchor_name}] 收到手动停止录制请求")
+            if os.name == 'nt':
+                if process.stdin:
+                    process.stdin.write(b'q')
+                    process.stdin.close()
+            else:
+                process.send_signal(signal.SIGINT)
+            process.wait()
+            recording.discard(record_name)
+            runtime_status.mark_recording_finished(
+                record_url,
+                anchor_name,
+                process.returncode or 0,
+                intentional=True,
+                recover_if_live=False,
+            )
+            runtime_status.release_recording_task(record_url)
+            return True
         if record_url in url_comments or exit_recording:
             color_obj.print_colored(f"[{record_name}]录制时已被注释,本条线程将会退出", color_obj.YELLOW)
             clear_record_info(record_name, record_url)
