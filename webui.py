@@ -324,23 +324,27 @@ def get_monitor_snapshot():
     }
 
 
-def _active_recording_files() -> set[Path]:
-    active = set()
+def _active_recording_file_statuses() -> dict[Path, str]:
+    active = {}
     for item in runtime_status.load_state().get("monitors", {}).values():
         if item.get("recording_status") not in {"starting", "recording", "recovering", "stopping"}:
             continue
         file_path = item.get("recording_file")
         if file_path:
             try:
-                active.add(Path(file_path).resolve())
+                active[Path(file_path).resolve()] = item["recording_status"]
             except OSError:
                 continue
     return active
 
 
+def _active_recording_files() -> set[Path]:
+    return set(_active_recording_file_statuses())
+
+
 def list_recordings() -> list[dict]:
     root = DOWNLOADS_DIR.resolve()
-    active = _active_recording_files()
+    active = _active_recording_file_statuses()
     if not root.is_dir():
         return []
     files = []
@@ -354,12 +358,16 @@ def list_recordings() -> list[dict]:
             stat = path.stat()
         except OSError:
             continue
+        relative = path.relative_to(root)
+        recording_status = active.get(resolved, "completed")
         files.append({
             "name": path.name,
-            "path": path.relative_to(root).as_posix(),
+            "path": relative.as_posix(),
+            "directory": relative.parent.as_posix() if relative.parent != Path(".") else "根目录",
             "size": stat.st_size,
             "modified_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
             "is_recording": resolved in active,
+            "recording_status": recording_status,
         })
     return sorted(files, key=lambda item: item["modified_at"], reverse=True)
 
