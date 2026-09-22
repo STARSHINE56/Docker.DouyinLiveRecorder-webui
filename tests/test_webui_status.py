@@ -344,6 +344,17 @@ class WebUiSmokeTests(unittest.TestCase):
             logs = self.client.get("/api/logs")
         self.assertEqual(logs.get_json()["lines"], ["debug"])
 
+    def test_recordings_page_loads_status_without_home_dom(self):
+        response = self.client.get("/recordings")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="service"', html)
+        self.assertIn('id="recording-list"', html)
+        source = Path("templates/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("if(!document.getElementById('monitor-list')) return", source)
+        self.assertIn("if(box)box.innerHTML", source)
+        self.assertIn("setInterval(()=>loadRecordings(false),8000)", source)
+
     def test_recording_list_only_reads_downloads_and_sorts_newest_first(self):
         older = webui.DOWNLOADS_DIR / "old.mp4"
         nested = webui.DOWNLOADS_DIR / "主播" / "new.mkv"
@@ -358,9 +369,13 @@ class WebUiSmokeTests(unittest.TestCase):
 
         response = self.client.get("/api/recordings")
         self.assertEqual(response.status_code, 200)
-        paths = [item["path"] for item in response.get_json()["recordings"]]
+        recordings = response.get_json()["recordings"]
+        paths = [item["path"] for item in recordings]
         self.assertEqual(set(paths), {"old.mp4", "主播/new.mkv"})
         self.assertNotIn("outside.mp4", paths)
+        nested_item = next(item for item in recordings if item["name"] == "new.mkv")
+        self.assertEqual(nested_item["directory"], "主播")
+        self.assertEqual(nested_item["recording_status"], "completed")
 
     def test_recording_delete_rejects_traversal_and_directory(self):
         outside = Path(self.temp.name) / "outside.mp4"
@@ -383,6 +398,11 @@ class WebUiSmokeTests(unittest.TestCase):
         url = "https://live.douyin.com/delete-test"
         status_runtime.update_live_status(url, "删除测试", True, stream_valid=True)
         status_runtime.mark_recording_started(url, "删除测试", 1234, str(active))
+
+        listed = self.client.get("/api/recordings").get_json()["recordings"]
+        active_item = next(item for item in listed if item["name"] == "active.mp4")
+        self.assertTrue(active_item["is_recording"])
+        self.assertEqual(active_item["recording_status"], "recording")
 
         blocked = self.client.post("/api/recordings/delete", json={"path": "active.mp4"})
         self.assertEqual(blocked.status_code, 409)
