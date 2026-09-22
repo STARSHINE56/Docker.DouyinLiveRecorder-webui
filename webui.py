@@ -297,6 +297,10 @@ def get_monitor_snapshot():
                 item[key] = persisted[key]
         if persisted.get("name") and item["name"] in {"待识别主播", "等待获取主播名"}:
             item["name"] = persisted["name"]
+        # Display-only normalization: offline + interrupted → idle.
+        # Keeps historical interrupted events; does not mutate runtime state.
+        if item.get("live_status") == "offline" and item.get("recording_status") == "interrupted":
+            item["recording_status"] = "idle"
 
     counts = {
         "total": len(items),

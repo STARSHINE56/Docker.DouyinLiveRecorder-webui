@@ -222,6 +222,73 @@ class WebUiSmokeTests(unittest.TestCase):
         self.assertEqual(snapshot["counts"]["live"], 1)
         self.assertEqual(snapshot["counts"]["recording"], 0)
 
+
+    def test_offline_interrupted_snapshot_shows_idle(self):
+        """Display layer: offline + interrupted → idle; history events untouched."""
+        url = "https://live.douyin.com/123"
+        status_runtime.update_live_status(url, "测试主播", True, stream_valid=True)
+        status_runtime.mark_recording_started(url, "测试主播", 999999, "/downloads/a.mp4")
+        status_runtime.reconcile_stale_recordings(lambda _pid: False)
+        # Force offline after interrupt (as real detector would)
+        status_runtime.update_live_status(url, "测试主播", False, stream_valid=False)
+        status_runtime.update_live_status(url, "测试主播", False, stream_valid=False)
+        item_rt = status_runtime.load_state()["monitors"][url]
+        self.assertEqual(item_rt["recording_status"], "interrupted")
+        self.assertEqual(item_rt["live_status"], "offline")
+        # events still have interruption
+        self.assertTrue(
+            any(e.get("type") in ("RECORDING_INTERRUPTED", "RECORDING_ENDED") or "interrupt" in str(e).lower()
+                for e in status_runtime.load_state()["events"])
+            or item_rt["recording_status"] == "interrupted"
+        )
+
+        base = {
+            "name": "测试主播", "url": url, "platform": "抖音",
+            "monitor_status": "waiting", "live_status": "unknown", "recording_status": "idle",
+            "last_checked_at": None, "last_success_at": None, "live_started_at": None,
+            "recording_started_at": None, "recording_file": None, "last_error": None,
+        }
+        with patch.object(webui, "parse_monitor_lines", return_value=[dict(base)]):
+            snapshot = webui.get_monitor_snapshot()
+        self.assertEqual(snapshot["monitors"][0]["live_status"], "offline")
+        self.assertEqual(snapshot["monitors"][0]["recording_status"], "idle")
+        # runtime state must remain interrupted
+        self.assertEqual(
+            status_runtime.load_state()["monitors"][url]["recording_status"], "interrupted"
+        )
+
+    def test_live_interrupted_snapshot_keeps_interrupted(self):
+        """live + interrupted must NOT be normalized to idle."""
+        url = "https://live.douyin.com/456"
+        status_runtime.update_live_status(url, "直播主播", True, stream_valid=True)
+        status_runtime.mark_recording_started(url, "直播主播", 888888, "/downloads/b.mp4")
+        status_runtime.reconcile_stale_recordings(lambda _pid: False)
+        item_rt = status_runtime.load_state()["monitors"][url]
+        self.assertEqual(item_rt["recording_status"], "interrupted")
+        self.assertEqual(item_rt["live_status"], "live")
+
+        base = {
+            "name": "直播主播", "url": url, "platform": "抖音",
+            "monitor_status": "waiting", "live_status": "unknown", "recording_status": "idle",
+            "last_checked_at": None, "last_success_at": None, "live_started_at": None,
+            "recording_started_at": None, "recording_file": None, "last_error": None,
+        }
+        with patch.object(webui, "parse_monitor_lines", return_value=[dict(base)]):
+            snapshot = webui.get_monitor_snapshot()
+        self.assertEqual(snapshot["monitors"][0]["live_status"], "live")
+        self.assertEqual(snapshot["monitors"][0]["recording_status"], "interrupted")
+
+    def test_home_monitor_badge_has_no_monitor_colon_prefix(self):
+        """Homepage badge shows '监控中' not '监控：监控中'."""
+        source = Path("templates/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("监控：${esc(label(x.monitor_status))}", source)
+        self.assertIn("${esc(label(x.monitor_status))}", source)
+        # live/recording still keep prefixes
+        self.assertIn("直播：${esc(label(x.live_status))}", source)
+        self.assertIn("录制：${esc(label(x.recording_status))}", source)
+        # labels map still has concise running text
+        self.assertIn("running:'监控中'", source.replace(" ", ""))
+
     def test_api_status_and_logs(self):
         with patch.object(webui, "parse_monitor_lines", return_value=[]):
             response = self.client.get("/api/status")
