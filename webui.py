@@ -5,7 +5,7 @@ import re
 import subprocess
 import threading
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import urlparse
 
 import requests
@@ -20,6 +20,8 @@ LOG_FILES = (
     "logs/streamget.log",
     "logs/PlayURL.log",
 )
+DOWNLOADS_DIR = Path(os.environ.get("DLR_DOWNLOADS_DIR", "/app/downloads"))
+RECORDING_EXTENSIONS = {".mp4", ".flv", ".ts", ".mkv", ".mov", ".m4v", ".webm", ".mp3", ".m4a"}
 
 recording_process = None
 recording_process_lock = threading.Lock()
@@ -322,6 +324,57 @@ def get_monitor_snapshot():
     }
 
 
+def _active_recording_files() -> set[Path]:
+    active = set()
+    for item in runtime_status.load_state().get("monitors", {}).values():
+        if item.get("recording_status") not in {"starting", "recording", "recovering", "stopping"}:
+            continue
+        file_path = item.get("recording_file")
+        if file_path:
+            try:
+                active.add(Path(file_path).resolve())
+            except OSError:
+                continue
+    return active
+
+
+def list_recordings() -> list[dict]:
+    root = DOWNLOADS_DIR.resolve()
+    active = _active_recording_files()
+    if not root.is_dir():
+        return []
+    files = []
+    for path in root.rglob("*"):
+        try:
+            resolved = path.resolve()
+            if path.is_symlink() or not path.is_file() or not resolved.is_relative_to(root):
+                continue
+            if path.suffix.lower() not in RECORDING_EXTENSIONS:
+                continue
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append({
+            "name": path.name,
+            "path": path.relative_to(root).as_posix(),
+            "size": stat.st_size,
+            "modified_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+            "is_recording": resolved in active,
+        })
+    return sorted(files, key=lambda item: item["modified_at"], reverse=True)
+
+
+def _safe_recording_path(relative_path: str) -> Path:
+    candidate = PurePath(relative_path)
+    if not relative_path or candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError("录像路径不安全")
+    root = DOWNLOADS_DIR.resolve()
+    target = (root / candidate).resolve()
+    if not target.is_relative_to(root):
+        raise ValueError("只能操作 downloads 内的录像")
+    return target
+
+
 @app.route("/")
 def index():
     return redirect(url_for("home_page"))
@@ -337,6 +390,11 @@ def settings_page():
     return render_template("index.html", active_tab="settings")
 
 
+@app.route("/recordings")
+def recordings_page():
+    return render_template("index.html", active_tab="recordings")
+
+
 @app.route("/api/status")
 def api_status():
     return jsonify(get_monitor_snapshot())
@@ -346,6 +404,41 @@ def api_status():
 def api_logs():
     limit = max(20, min(request.args.get("limit", 120, type=int), 500))
     return jsonify({"lines": read_log_lines(limit)})
+
+
+@app.route("/api/recordings")
+def api_recordings():
+    return jsonify({"recordings": list_recordings()})
+
+
+@app.route("/api/recordings/delete", methods=["POST"])
+def delete_recording():
+    relative_path = (request.get_json(silent=True) or {}).get("path", "")
+    try:
+        target = _safe_recording_path(relative_path)
+    except (TypeError, ValueError, OSError):
+        return jsonify(success=False, message="录像路径不安全"), 400
+    if not target.exists():
+        return jsonify(success=False, message="录像文件不存在"), 404
+    if target.is_symlink() or not target.is_file():
+        return jsonify(success=False, message="只能删除录像文件，不能删除目录"), 400
+    if target.resolve() in _active_recording_files():
+        return jsonify(success=False, message="录像正在录制，不能删除"), 409
+    try:
+        target.unlink()
+    except OSError as exc:
+        logger.error(f"删除录像失败: {exc}")
+        return jsonify(success=False, message=f"删除失败：{exc}"), 500
+    return jsonify(success=True, message="录像已删除")
+
+
+@app.route("/api/recordings/stop", methods=["POST"])
+def stop_recording():
+    url = (request.get_json(silent=True) or {}).get("url", "")
+    if not isinstance(url, str) or not url.strip():
+        return jsonify(success=False, message="缺少主播地址"), 400
+    success, message = runtime_status.request_manual_stop(url.strip())
+    return jsonify(success=success, message=message), (200 if success else 409)
 
 
 def start_main_recording():
