@@ -15,6 +15,7 @@ import builtins
 import subprocess
 import signal
 import threading
+from collections import deque
 import time
 import datetime
 import re
@@ -222,37 +223,51 @@ def segment_video(converts_file_path: str, segment_save_file_path: str, segment_
         logger.error(f'An unknown error occurred: {e}')
 
 
-def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> None:
+def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> bool:
+    from upload_after_record import probe_media_file
+
+    output_file_path = str(Path(converts_file_path).with_suffix('.mp4'))
+    temporary_file_path = str(Path(converts_file_path).with_suffix('.converting.mp4'))
     try:
         if os.path.exists(converts_file_path) and os.path.getsize(converts_file_path) > 0:
-            output_file_path = converts_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
+            if os.path.exists(output_file_path) and os.path.getmtime(output_file_path) >= os.path.getmtime(converts_file_path):
+                if probe_media_file(output_file_path):
+                    logger.info(f"MP4 已转换并校验，跳过重复转换: {output_file_path}")
+                    return True
+            free = shutil.disk_usage(Path(converts_file_path).parent).free
+            required = int(os.path.getsize(converts_file_path) * 1.2) + 512 * 1024 * 1024
+            if free < required:
+                logger.error(f"磁盘空间不足，跳过 MP4 转换并保留 TS {converts_file_path}: 可用 {free} 字节，至少需要 {required} 字节")
+                return False
+            if os.path.exists(temporary_file_path):
+                os.remove(temporary_file_path)
             if converts_to_h264:
                 color_obj.print_colored(f"正在转码为MP4格式并重新编码为h264\n", color_obj.YELLOW)
                 ffmpeg_command = [
-                    "ffmpeg", "-i", converts_file_path,
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-i", converts_file_path,
                     "-c:v", "libx264",
                     "-preset", "veryfast",
                     "-crf", "23",
                     "-vf", "format=yuv420p",
                     "-c:a", "copy",
-                    "-f", "mp4", output_file_path,
+                    "-f", "mp4", temporary_file_path,
                 ]
             else:
                 color_obj.print_colored(f"正在转码为MP4格式\n", color_obj.YELLOW)
                 ffmpeg_command = [
-                    "ffmpeg", "-i", converts_file_path,
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostats", "-i", converts_file_path,
                     "-c:v", "copy",
                     "-c:a", "copy",
-                    "-f", "mp4", output_file_path,
+                    "-f", "mp4", temporary_file_path,
                 ]
             try:
                 subprocess.check_output(
                     ffmpeg_command, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
                 )
-            except subprocess.CalledProcessError:
-                logger.warning("MP4 音频直拷贝失败，改用 AAC 进行一次安全重试")
-                if os.path.exists(output_file_path):
-                    os.remove(output_file_path)
+            except subprocess.CalledProcessError as exc:
+                logger.warning(f"MP4 直拷贝失败 {converts_file_path}: {exc.output[-3000:].decode('utf-8', errors='replace') if isinstance(exc.output, bytes) else str(exc.output)[-3000:]}；尝试 AAC")
+                if os.path.exists(temporary_file_path):
+                    os.remove(temporary_file_path)
                 fallback_command = ffmpeg_command.copy()
                 audio_codec_index = fallback_command.index("-c:a") + 1
                 fallback_command[audio_codec_index] = "aac"
@@ -260,14 +275,25 @@ def converts_mp4(converts_file_path: str, is_original_delete: bool = True) -> No
                 subprocess.check_output(
                     fallback_command, stderr=subprocess.STDOUT, startupinfo=get_startup_info(os_type)
                 )
+            if not probe_media_file(temporary_file_path):
+                logger.error(f"MP4 转换产物缺少有效音视频，保留 TS: {converts_file_path}")
+                return False
+            os.replace(temporary_file_path, output_file_path)
             if is_original_delete:
                 time.sleep(1)
                 if os.path.exists(converts_file_path):
                     os.remove(converts_file_path)
+            return True
+        logger.error(f"TS 文件不存在或为空，无法转换: {converts_file_path}")
     except subprocess.CalledProcessError as e:
-        logger.error(f'Error occurred during conversion: {e}')
+        detail = e.output[-3000:].decode('utf-8', errors='replace') if isinstance(e.output, bytes) else str(e.output)[-3000:]
+        logger.error(f'MP4 转换失败，保留 TS {converts_file_path}: {detail}')
     except Exception as e:
-        logger.error(f'An unknown error occurred: {e}')
+        logger.exception(f'MP4 转换异常，保留 TS {converts_file_path}: {e}')
+    finally:
+        if os.path.exists(temporary_file_path):
+            os.remove(temporary_file_path)
+    return False
 
 
 def recording_segment_paths(save_file_path: str) -> list[str]:
@@ -438,7 +464,7 @@ def run_post_record_script(script_command: str | None, record_name: str,
 
 
 def finalize_recording(record_name: str, save_file_path: str, save_type: str,
-                       script_command: str | None = None) -> None:
+                       script_command: str | None = None, completed_segments: set[str] | None = None) -> None:
     """Run the shared successful-recording post-processing path.
 
     Post-record upload is deliberately best-effort: a failed custom/upload
@@ -448,16 +474,38 @@ def finalize_recording(record_name: str, save_file_path: str, save_type: str,
     if converts_to_mp4 and save_type == 'TS':
         if split_video_by_time:
             for path in recording_segment_paths(save_file_path):
-                converts_mp4(path, delete_origin_file)
+                if path not in (completed_segments or set()):
+                    finish_ts_segment(record_name, path, script_command)
+            script_command = None  # each segment has already run its own post-record script
         else:
-            converts_mp4(save_file_path, delete_origin_file)
+            if not converts_mp4(save_file_path, False):
+                script_command = None
 
     stop_time = time.strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n{record_name} {stop_time} 直播录制完成\n")
     try:
-        run_post_record_script(script_command, record_name, save_file_path, save_type)
+        if script_command:
+            run_post_record_script(script_command, record_name, save_file_path, save_type)
     except Exception as exc:
         logger.exception(f"[{record_name}] 录制后处理/上传失败，录像文件已保留: {exc}")
+
+
+def finish_ts_segment(record_name: str, path: str, script_command: str | None) -> bool:
+    """A closed TS is eligible for upload only after conversion has succeeded."""
+    from upload_after_record import file_is_open, file_is_stable
+
+    if not file_is_stable(Path(path)) or file_is_open(Path(path)):
+        logger.warning(f"[{record_name}] 分段仍在写入或不稳定，保留 TS: {path}")
+        return False
+    if not converts_mp4(path, False):
+        logger.error(f"[{record_name}] 分段转换失败，保留 TS 待补传: {path}")
+        return False
+    try:
+        run_post_record_script(script_command, record_name, path, 'TS')
+        return True
+    except Exception as exc:
+        logger.exception(f"[{record_name}] 分段上传失败，保留本地录像 {path}: {exc}")
+        return False
 
 
 def clear_record_info(record_name: str, record_url: str) -> None:
@@ -488,6 +536,48 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
         raise
     runtime_status.mark_recording_started(record_url, anchor_name, process.pid, save_file_path)
 
+    # A full stdout pipe can stall FFmpeg indefinitely; retain only a short diagnostic tail.
+    ffmpeg_output = deque(maxlen=32)
+    def drain_ffmpeg_output():
+        while True:
+            chunk = process.stdout.read(4096)
+            if not chunk:
+                break
+            ffmpeg_output.append(chunk)
+    output_thread = None
+    if getattr(process, 'stdout', None):
+        output_thread = threading.Thread(target=drain_ffmpeg_output, daemon=True)
+        output_thread.start()
+
+    def log_ffmpeg_failure():
+        if output_thread:
+            output_thread.join(timeout=2)
+        detail = b''.join(ffmpeg_output)[-3000:].decode('utf-8', errors='replace')
+        logger.error(f"[{record_name}] FFmpeg 录制异常，退出码 {process.returncode}: {detail}")
+
+    closed_segments = set()
+    segment_stop = threading.Event()
+    segment_thread = None
+    if save_type == 'TS' and split_video_by_time and converts_to_mp4:
+        def process_closed_segments():
+            while not segment_stop.wait(5):
+                # FFmpeg creates the next segment only after closing the prior one.
+                try:
+                    paths = recording_segment_paths(save_file_path)
+                    for path in paths[:-1]:
+                        if path not in closed_segments and finish_ts_segment(record_name, path, script_command):
+                            closed_segments.add(path)
+                except Exception as exc:
+                    logger.exception(f"[{record_name}] 分段后处理异常，保留源文件: {exc}")
+
+        segment_thread = threading.Thread(target=process_closed_segments, daemon=True)
+        segment_thread.start()
+
+    def stop_segment_worker():
+        segment_stop.set()
+        if segment_thread:
+            segment_thread.join()
+
     subs_file_path = save_file_path.rsplit('.', maxsplit=1)[0]
     subs_thread_name = f'subs_{Path(subs_file_path).name}'
     if create_time_file and not split_video_by_time and '音频' not in save_type:
@@ -507,9 +597,11 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
             else:
                 process.send_signal(signal.SIGINT)
             process.wait()
+            stop_segment_worker()
             try:
                 finalize_recording(
-                    record_name, save_file_path, save_type, script_command
+                    record_name, save_file_path, save_type, script_command,
+                    completed_segments=closed_segments if segment_thread else None,
                 )
             finally:
                 recording.discard(record_name)
@@ -533,6 +625,7 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
             else:
                 process.send_signal(signal.SIGINT)
             process.wait()
+            stop_segment_worker()
             runtime_status.mark_recording_finished(
                 record_url, anchor_name, process.returncode or 0, intentional=True
             )
@@ -540,11 +633,19 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
             return True
         time.sleep(1)
 
+    stop_segment_worker()
     return_code = process.returncode
     if return_code == 0:
-        finalize_recording(record_name, save_file_path, save_type, script_command)
+        finalize_recording(record_name, save_file_path, save_type, script_command,
+                           completed_segments=closed_segments if segment_thread else None)
 
     else:
+        log_ffmpeg_failure()
+        if segment_thread:
+            # The last segment can be truncated on failure; only earlier closed segments are safe.
+            for path in recording_segment_paths(save_file_path)[:-1]:
+                if path not in closed_segments:
+                    finish_ts_segment(record_name, path, script_command)
         stop_time = time.strftime('%Y-%m-%d %H:%M:%S')
         color_obj.print_colored(f"\n{record_name} {stop_time} 直播录制出错,返回码: {return_code}\n", color_obj.RED)
 
