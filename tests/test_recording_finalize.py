@@ -1,7 +1,9 @@
 import ast
+from collections import deque
 import os
 import signal
 import subprocess
+import threading
 import tempfile
 import time
 import unittest
@@ -19,7 +21,7 @@ def load_recording_functions(namespace):
     selected = [
         node for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {"run_script", "finalize_recording", "check_subprocess"}
+        and node.name in {"run_script", "finalize_recording", "finish_ts_segment", "check_subprocess"}
     ]
     exec(compile(ast.Module(body=selected, type_ignores=[]), "main.py", "exec"), namespace)
     return namespace
@@ -34,6 +36,8 @@ class RecordingFinalizeTests(unittest.TestCase):
             "signal": signal,
             "subprocess": subprocess,
             "time": time,
+            "threading": threading,
+            "deque": deque,
             "logger": MagicMock(),
             "converts_to_mp4": True,
             "split_video_by_time": False,
@@ -63,6 +67,18 @@ class RecordingFinalizeTests(unittest.TestCase):
         namespace["run_post_record_script"].assert_called_once_with(
             "python upload_after_record.py", "序号1 测试主播", "/downloads/live.ts", "TS"
         )
+
+    def test_segment_finalization_only_processes_unfinished_segments(self):
+        namespace = self.base_namespace()
+        namespace['split_video_by_time'] = True
+        namespace['recording_segment_paths'].return_value = ['/downloads/a_000.ts', '/downloads/a_001.ts']
+        load_recording_functions(namespace)
+        namespace['finish_ts_segment'] = MagicMock(return_value=True)
+        namespace['finalize_recording']('主播', '/downloads/a_%03d.ts', 'TS',
+                                        'python upload_after_record.py', {'/downloads/a_000.ts'})
+        namespace['finish_ts_segment'].assert_called_once_with(
+            '主播', '/downloads/a_001.ts', 'python upload_after_record.py')
+        namespace['run_post_record_script'].assert_not_called()
 
     def test_post_record_script_nonzero_exit_is_logged_as_failure(self):
         namespace = self.base_namespace()
