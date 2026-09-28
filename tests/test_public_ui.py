@@ -103,19 +103,37 @@ def test_fast_update_and_rollback_in_isolated_git_repo(tmp_path):
     run("git", "commit", "-m", "baseline")
     run("git", "push", "-u", "origin", "main")
     (repo / "downloads" / "record.mp4").write_bytes(b"keep")
+    state = repo / "config" / "runtime_state.json"
+    state.write_text('{"monitors":{}}')
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
     docker = fakebin / "docker"
-    docker.write_text("#!/bin/sh\ncase \"$*\" in *' ps --status running app'*) echo douyin-live-recorder-webui;; esac\nexit 0\n")
+    docker.write_text(
+        '#!/bin/sh\n'
+        'case "$*" in\n'
+        '  *" ps --status running --services app"*) echo app;;\n'
+        '  *" up -d "*) if [ "${FAIL_NEW_VERSION:-}" = 1 ] && grep -q "version = 2" webui.py; then exit 1; fi;;\n'
+        '  *" exec -T app python "*) if [ "${FAIL_HEALTH:-}" = 1 ] && grep -q "version = 2" webui.py; then exit 1; fi;;\n'
+        'esac\nexit 0\n'
+    )
     docker.chmod(0o755)
+    sleep = fakebin / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
     env = dict(os.environ, PATH=f"{fakebin}:{os.environ['PATH']}")
     (repo / "webui.py").write_text("version = 2\n")
-    run("bash", "scripts/fast-update.sh", env=env, check=False)
+    blocked = run("bash", "scripts/fast-update.sh", env=env, check=False)
+    assert blocked.returncode != 0 and "未提交" in blocked.stderr
     assert (repo / "webui.py").read_text() == "version = 2\n"  # local edit untouched
     run("git", "add", "webui.py")
     run("git", "commit", "-m", "update")
     run("git", "push", "origin", "main")
     run("git", "reset", "--hard", "HEAD~1")  # test fixture only
+    state.unlink()
+    assert "状态不可读取" in run("bash", "scripts/fast-update.sh", env=env, check=False).stderr
+    state.write_text('{"monitors":{"url":{"recording_status":"recording"}}}')
+    assert "检测到正在录制" in run("bash", "scripts/fast-update.sh", env=env, check=False).stderr
+    state.write_text('{"monitors":{}}')
     result = run("bash", "scripts/fast-update.sh", env=env)
     assert "已更新至" in result.stdout
     assert (repo / "webui.py").read_text() == "version = 2\n"
@@ -123,3 +141,11 @@ def test_fast_update_and_rollback_in_isolated_git_repo(tmp_path):
     assert "已回退至" in result.stdout
     assert (repo / "webui.py").read_text() == "version = 1\n"
     assert (repo / "downloads" / "record.mp4").read_bytes() == b"keep"
+    # The same remote version remains available; simulate a startup failure.
+    failed = run("bash", "scripts/fast-update.sh", env=dict(env, FAIL_NEW_VERSION="1"), check=False)
+    assert failed.returncode != 0 and "已恢复旧版本" in failed.stderr
+    assert (repo / "webui.py").read_text() == "version = 1\n"
+    assert (repo / "downloads" / "record.mp4").read_bytes() == b"keep"
+    failed_health = run("bash", "scripts/fast-update.sh", env=dict(env, FAIL_HEALTH="1"), check=False)
+    assert failed_health.returncode != 0 and "已恢复旧版本" in failed_health.stderr
+    assert (repo / "webui.py").read_text() == "version = 1\n"
