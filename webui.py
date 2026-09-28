@@ -382,6 +382,8 @@ def list_recordings() -> list[dict]:
             "path": relative.as_posix(),
             "directory": relative.parent.as_posix() if relative.parent != Path(".") else "根目录",
             "size": stat.st_size,
+            "format": path.suffix.lower().lstrip(".").upper(),
+            "upload_status": "unknown",  # No per-file upload receipt is persisted.
             "modified_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
             "is_recording": resolved in active,
             "recording_status": recording_status,
@@ -390,13 +392,22 @@ def list_recordings() -> list[dict]:
 
 
 def _safe_recording_path(relative_path: str) -> Path:
+    if not isinstance(relative_path, str):
+        raise ValueError("录像路径不安全")
     candidate = PurePath(relative_path)
     if not relative_path or candidate.is_absolute() or ".." in candidate.parts:
         raise ValueError("录像路径不安全")
     root = DOWNLOADS_DIR.resolve()
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("不能操作符号链接")
     target = (root / candidate).resolve()
     if not target.is_relative_to(root):
         raise ValueError("只能操作 downloads 内的录像")
+    if target.suffix.lower() not in RECORDING_EXTENSIONS:
+        raise ValueError("只能操作支持的录像文件")
     return target
 
 
@@ -517,10 +528,12 @@ def add_anchor():
             url_for("url_config_page", error="invalid_url")
         )
 
-    lines = monitor_lines_raw()
+    lines = read_url_config().splitlines()
     existing_urls = []
 
     for line in lines:
+        if not line.strip() or line.lstrip().startswith(("#", ";")):
+            continue
         main_part = re.split(
             r"[,，]\s*主播\s*[:：]",
             line,
@@ -546,15 +559,36 @@ def add_anchor():
 
 @app.route("/anchors/delete/<int:index>", methods=["POST"])
 def delete_anchor(index):
-    lines = monitor_lines_raw()
-
-    if 0 <= index < len(lines):
-        del lines[index]
-        write_url_config("\n".join(lines))
+    rows = read_url_config().splitlines()
+    indices = [i for i, row in enumerate(rows) if row.strip().startswith(("http://", "https://"))]
+    if not 0 <= index < len(indices):
+        return redirect(url_for("url_config_page", error="invalid_target"))
+    del rows[indices[index]]
+    write_url_config("\n".join(rows))
 
     return redirect(
         url_for("url_config_page", success="true")
     )
+
+
+@app.route("/anchors/batch-delete", methods=["POST"])
+def batch_delete_anchors():
+    selected = request.form.getlist("anchor_url")
+    if not selected or len(selected) != len(set(selected)):
+        return redirect(url_for("url_config_page", error="invalid_target"))
+    rows = read_url_config().splitlines()
+    mapped = {}
+    for i, row in enumerate(rows):
+        if not row.strip() or row.lstrip().startswith(("#", ";")):
+            continue
+        url = re.split(r"[,，]\s*主播\s*[:：]", row.strip(), maxsplit=1)[0].split("|", 1)[0].strip()
+        mapped.setdefault(url, []).append(i)
+    # Reject unknown or ambiguous URLs before writing anything.
+    if any(len(mapped.get(url, [])) != 1 for url in selected):
+        return redirect(url_for("url_config_page", error="invalid_target"))
+    removed = {mapped[url][0] for url in selected}
+    write_url_config("\n".join(row for i, row in enumerate(rows) if i not in removed))
+    return redirect(url_for("url_config_page", success="deleted"))
 
 
 def config_page(section, endpoint, active_tab):
@@ -564,6 +598,8 @@ def config_page(section, endpoint, active_tab):
             config.add_section(section)
         for key, value in request.form.items():
             if key == "button_clicked":
+                continue
+            if ("密码" in key or "token" in key.lower() or "令牌" in key) and not value:
                 continue
             config.set(section, key, value)
         write_config(config, CONFIG_FILE)
@@ -624,7 +660,7 @@ def test_xiaolan_webdav():
             allow_redirects=True,
         )
         if response.status_code in (200, 201, 204, 207):
-            return jsonify(success=True, message="小蓝网盘 WebDAV 连接成功")
+            return jsonify(success=True, message="云盘连接成功")
 
         messages = {
             401: "认证失败，请检查用户名和密码",
@@ -635,8 +671,9 @@ def test_xiaolan_webdav():
         return jsonify(success=False, message=message), 400
     except requests.exceptions.Timeout:
         return jsonify(success=False, message="连接超时"), 400
-    except requests.exceptions.RequestException as exc:
-        logger.error(f"WebDAV连接失败: {exc}")
+    except requests.exceptions.RequestException:
+        # Request exception strings may include credentials in the URL.
+        logger.error("WebDAV连接失败（网络或协议错误）")
         return jsonify(success=False, message="无法连接 WebDAV 服务器"), 400
 
 

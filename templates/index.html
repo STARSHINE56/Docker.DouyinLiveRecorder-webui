@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>DouyinLiveRecorder</title>
+<title>星辰直播监控助手</title>
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#718096;--line:#e7ecf3;--primary:#2563eb;--green:#16a34a;--orange:#f59e0b;--red:#dc2626;--purple:#7c3aed;--shadow:0 8px 24px rgba(15,23,42,.06)}
 *{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
@@ -31,12 +31,20 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
 .monitor{border-radius:18px}.anchor-row{grid-template-columns:minmax(0,1fr) auto}.settings-grid a{border-radius:18px;padding:17px}
 .anchor-add input,.form-group input,.form-group textarea,.form-group select{min-height:48px;border-radius:14px;padding:11px 14px}.form-group input:focus,.form-group textarea:focus,.form-group select:focus{outline:2px solid #dbe2ff;border-color:var(--primary)}
 @media(max-width:760px){.topbar{flex-wrap:wrap}.service{max-width:100%;text-align:left}.mainnav{bottom:max(10px,env(safe-area-inset-bottom))}.card{padding:15px}}
+
+:root{--bg:#f4f7fc;--card:#fff;--text:#14233d;--muted:#526279;--line:#dce5f2;--primary:#175cd3;--shadow:0 8px 28px rgba(21,55,105,.06)}
+body{background:var(--bg)}.shell{max-width:none}.card,.stat,.settings-grid a{box-shadow:var(--shadow)}.stat{border-top:3px solid var(--primary)}.stat b{color:var(--primary)}
+.mainnav{background:transparent}.mainnav a.active{background:#dceaff;color:#1148ad}.service{background:#e8f1ff;color:#174489}
+.filters,.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.filters button{border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);min-height:44px;padding:8px 12px;cursor:pointer}.filters button.selected{background:var(--primary);color:white}.toolbar input,.toolbar select{min-width:0;min-height:44px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card);color:var(--text);font:inherit}.toolbar input{flex:2 1 200px}.toolbar select{flex:1 1 150px}.alert{border:1px solid #f1b6bc;background:#fff1f2;color:#9f1239;border-radius:12px;padding:12px;margin-bottom:12px}.anchor-row{grid-template-columns:auto minmax(0,1fr) auto}.anchor-row [type=checkbox]{width:20px;height:20px}.anchor-row[hidden],.monitor[hidden]{display:none}.anchor-row .small,.recording-path,.detail-item{overflow-wrap:anywhere;word-break:break-word}.recording-name,.recording-path{display:block;overflow:visible}.event{display:flex;gap:9px;flex-wrap:wrap;border-left:3px solid var(--primary);padding:10px 12px;background:var(--bg);border-radius:8px}.event time{color:var(--muted)}.event strong{color:var(--primary)}.security-note{margin-top:18px;padding:14px;background:var(--bg);border-radius:12px}.security-note p{margin:4px 0;color:var(--muted)}.sr-only{position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden}button{cursor:pointer;font:inherit}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #8db9ff;outline-offset:2px}button:disabled{cursor:not-allowed;opacity:.65}
+@media(min-width:1000px){.shell{padding:28px 34px 40px 232px}.mainnav{position:fixed;left:18px;top:18px;bottom:18px;width:188px;display:flex;flex-direction:column;justify-content:flex-start;background:var(--card);padding:18px 10px;border:1px solid var(--line);box-shadow:var(--shadow)}.mainnav a{text-align:left;display:block;padding:12px 15px}.mainnav:before{content:'管理导航';font-weight:700;color:var(--muted);padding:6px 15px 14px}.topbar{margin-bottom:24px}}
+@media(max-width:760px){.mainnav{grid-template-columns:repeat(5,minmax(0,1fr));background:var(--card);border:1px solid var(--line)}.mainnav a{font-size:13px;min-width:0;padding:8px 2px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar input,.toolbar select{width:100%}.section-head{align-items:flex-start}.anchor-row{gap:6px}.anchor-row form{align-self:center}.stat{padding:12px}.brand h1{font-size:19px}}
+@media(prefers-color-scheme:dark){:root{--bg:#111827;--card:#1e293b;--text:#eaf0fa;--muted:#b2c1d6;--line:#34455d;--primary:#83b3ff;--shadow:0 8px 24px rgba(0,0,0,.17)}.mainnav,.stat,.settings-grid a,.toolbar input,.toolbar select,.filters button,.form-group input,.form-group select,.form-group textarea{background:var(--card);color:var(--text)}.mainnav a.active,.service,.refresh,.detail-btn,.btn.secondary{background:#213d67;color:#b9d3ff}.detail-item,.security-note,.event,.dialog-close{background:#26364e;color:var(--text)}.dialog{background:var(--card);color:var(--text)}.filters button.selected,.btn,.anchor-add button{background:#3269be;color:white}.hint,.meta,.event time{color:var(--muted)}}
 </style>
 </head>
 <body>
 <div class="shell">
   <header class="topbar">
-    <div class="brand"><h1>DouyinLiveRecorder</h1><p>直播监控控制台</p></div>
+    <div class="brand"><h1>星辰直播监控助手</h1><p>直播监控控制台</p></div>
     <div id="service" class="service">正在读取状态…</div>
   </header>
 
@@ -57,7 +65,9 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
   </div>
 
   <section class="card">
-    <div class="section-head"><h2>主播监控</h2><button class="refresh" onclick="loadStatus()">刷新</button></div>
+    <div class="section-head"><div><h2>主播监控</h2><p class="hint" id="last-refresh">等待首次刷新</p></div><button class="refresh" type="button" onclick="loadStatus()">刷新</button></div>
+    <div id="alerts" role="status"></div>
+    <div class="filters" aria-label="主播状态筛选"><button type="button" data-filter="all" class="selected">全部</button><button type="button" data-filter="live">直播中</button><button type="button" data-filter="offline">未开播</button><button type="button" data-filter="recording">正在录制</button><button type="button" data-filter="error">异常</button></div>
     <div id="monitor-list" class="monitor-list"><div class="empty">正在加载主播状态…</div></div>
   </section>
 
@@ -94,10 +104,13 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
 
   <section class="card">
     <h2>已添加主播</h2>
+    <div class="toolbar"><label class="sr-only" for="anchor-search">搜索主播</label><input id="anchor-search" type="search" placeholder="搜索主播名称或链接" aria-label="搜索主播"><select id="anchor-filter" aria-label="主播状态筛选"><option value="all">全部状态</option><option value="live">直播中</option><option value="offline">未开播</option><option value="recording">正在录制</option><option value="error">异常</option></select></div>
+    <form id="batch-form" method="post" action="{{ url_for('batch_delete_anchors') }}" onsubmit="return confirmBatch(this)"><button class="delete-btn" type="submit">删除所选主播</button></form>
 
     {% if monitor_items %}
       {% for item in monitor_items %}
-      <div class="anchor-row">
+      <div class="anchor-row" data-url="{{ item.url }}" data-name="{{ item.name }}">
+        <input type="checkbox" form="batch-form" name="anchor_url" value="{{ item.url }}" aria-label="选择 {{ item.name }}">
         <div>
           <strong>{{ item.name }}</strong>
           <div class="small">{{ item.platform }} · {{ item.url }}</div>
@@ -113,7 +126,7 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
       </div>
       {% endfor %}
     {% else %}
-      <div class="empty">还没有添加主播</div>
+      <div class="empty">还没有添加主播。请使用上方表单添加直播间或主页链接。</div>
     {% endif %}
 
     <details class="advanced">
@@ -131,6 +144,7 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
   {% elif active_tab == 'recordings' %}
   <section class="card">
     <div class="section-head"><div><h2>录像管理</h2><p class="hint">仅显示 downloads 内的录像和音频文件。</p></div><button class="refresh" type="button" onclick="loadRecordings()">刷新</button></div>
+    <div class="toolbar"><input id="recording-search" type="search" placeholder="搜索录像名称" aria-label="搜索录像名称"><select id="recording-sort" aria-label="录像排序"><option value="new">时间：最新</option><option value="old">时间：最早</option><option value="large">文件：最大</option><option value="small">文件：最小</option></select></div>
     <div id="recording-list" class="recording-list"><div class="empty">正在加载录像…</div></div>
   </section>
 
@@ -138,11 +152,13 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
   <section class="card">
     <h2>设置</h2>
     <div class="settings-grid">
-      <a href="{{ url_for('push_settings_page') }}"><b>推送设置</b><span>开播、关播与通知渠道</span></a>
+      <a href="{{ url_for('recording_settings_page') }}"><b>录制设置</b><span>录制参数与后处理</span></a>
+      <a href="{{ url_for('push_settings_page') }}"><b>通知设置</b><span>开播、关播与通知渠道</span></a>
       <a href="{{ url_for('cookie_settings_page') }}"><b>Cookie</b><span>各平台登录 Cookie</span></a>
       <a href="{{ url_for('account_settings_page') }}"><b>账号密码</b><span>平台账号相关配置</span></a>
-      <a href="{{ url_for('xiaolan_webdav_page') }}"><b>小蓝网盘</b><span>WebDAV 自动上传配置</span></a>
+      <a href="{{ url_for('xiaolan_webdav_page') }}"><b>云盘配置</b><span>WebDAV 自动上传配置</span></a>
     </div>
+    <div class="security-note"><b>访问安全</b><p>当前 WebUI 没有登录验证。公开使用前请通过 HTTPS 反向代理限制访问，不要直接暴露 5000 端口。</p></div>
   </section>
 
   {% else %}
@@ -151,21 +167,21 @@ form{margin:0}.form-group{margin-bottom:14px}.form-group label{display:block;fon
     <a href="{{ url_for('push_settings_page') }}" class="{{ 'active' if active_tab=='push_settings' else '' }}">推送</a>
     <a href="{{ url_for('cookie_settings_page') }}" class="{{ 'active' if active_tab=='cookie_settings' else '' }}">Cookie</a>
     <a href="{{ url_for('account_settings_page') }}" class="{{ 'active' if active_tab=='account_settings' else '' }}">账号密码</a>
-    <a href="{{ url_for('xiaolan_webdav_page') }}" class="{{ 'active' if active_tab=='xiaolan_webdav' else '' }}">小蓝网盘</a>
+    <a href="{{ url_for('xiaolan_webdav_page') }}" class="{{ 'active' if active_tab=='xiaolan_webdav' else '' }}">云盘配置</a>
   </div>
   <section class="card">
-    <h2>{{ section }}</h2>
+    <h2>{{ "云盘配置" if active_tab == "xiaolan_webdav" else section }}</h2>
     {% if active_tab == 'xiaolan_webdav' %}<p class="hint">录像转为 MP4 后可上传；建议先测试连接，再开启自动上传。</p>{% endif %}
     <form method="post">
       {% for key, value in config.items(section) %}
       <div class="form-group">
-        <label>{{ key }}</label>
+        <label for="setting-{{ loop.index }}">{{ key }}</label>
         {% if value in ['是','否'] %}
-          <select name="{{ key }}"><option value="是" {{ 'selected' if value=='是' else '' }}>是</option><option value="否" {{ 'selected' if value=='否' else '' }}>否</option></select>
+          <select id="setting-{{ loop.index }}" name="{{ key }}"><option value="是" {{ 'selected' if value=='是' else '' }}>是</option><option value="否" {{ 'selected' if value=='否' else '' }}>否</option></select>
         {% elif '密码' in key or 'token' in key.lower() or '令牌' in key %}
-          <input type="password" name="{{ key }}" value="{{ value }}">
+          <input id="setting-{{ loop.index }}" type="password" name="{{ key }}" value="" placeholder="已保存；留空保持不变" autocomplete="new-password">
         {% else %}
-          <input type="text" name="{{ key }}" value="{{ value }}">
+          <input id="setting-{{ loop.index }}" type="text" name="{{ key }}" value="{{ value }}">
         {% endif %}
       </div>
       {% endfor %}
@@ -184,6 +200,9 @@ function esc(s){const d=document.createElement('div');d.textContent=s??'';return
 function attr(s){return esc(s).replaceAll('"','&quot;').replaceAll("'",'&#39;')}
 const labels={waiting:'等待',checking:'检测中',running:'监控中',error:'错误',disabled:'已停用',unknown:'未知',offline:'未开播',suspected_live:'疑似开播',live:'直播中',suspected_offline:'疑似下播',idle:'未录制',starting:'启动中',recording:'录制中',recovering:'恢复中',stopping:'停止中',completed:'已完成',interrupted:'已中断'};
 let currentData={monitors:[],events:[]};
+let homeFilter='all',statusPending=false,recordingItems=[];
+function matches(x,f){return f==='all'||(f==='error'?(x.monitor_status==='error'||x.recording_status==='error'):f==='recording'?x.recording_status==='recording':x.live_status===f)}
+function showNotice(message){const t=document.createElement('div');t.className='toast';t.role='status';t.textContent=message;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 function label(v){return labels[v]||v||'未知'}
 function timeText(v){if(!v)return'--';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleString()}
 function duration(v){if(!v)return'--';const sec=Math.max(0,Math.floor((Date.now()-new Date(v).getTime())/1000));if(!Number.isFinite(sec))return'--';const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
@@ -203,22 +222,29 @@ function showDetail(index){
 }
 function closeDetail(){document.getElementById('detail-dialog').close()}
 async function loadStatus(){
+  if(statusPending)return;statusPending=true;
   try{
     const r=await fetch('/api/status',{cache:'no-store'});
     const d=await r.json();
+    if(!r.ok)throw new Error('服务不可用');
     currentData=d;
+    const refresh=document.getElementById('last-refresh');if(refresh)refresh.textContent='最近刷新：'+d.updated_at;
+    const alerts=document.getElementById('alerts');if(alerts){const bad=d.monitors.filter(x=>matches(x,'error'));alerts.innerHTML=bad.length?`<div class="alert">${bad.length} 位主播需要关注：${bad.map(x=>esc(x.name)).join('、')}</div>`:'';}
     const service=document.getElementById('service');
     if(service)service.textContent=(d.service_running?'● 录制服务运行中':'○ WebUI 已启动')+' · '+d.updated_at.slice(11);
     for(const k of ['total','live','recording','error']){
       const e=document.getElementById('s-'+k); if(e)e.textContent=d.counts[k]??0;
     }
     const box=document.getElementById('monitor-list');
-    if(box)box.innerHTML=d.monitors.length?d.monitors.map((x,i)=>`<article class="monitor"><div class="monitor-head"><div class="monitor-title"><div class="monitor-name">${esc(x.name)}</div><div class="meta">${esc(x.platform)}</div></div><div class="badge-row"><span class="badge ${esc(x.monitor_status)}">${esc(label(x.monitor_status))}</span><span class="badge ${esc(x.live_status)}">${esc(label(x.live_status))}</span><span class="badge ${esc(x.recording_status)}">录制：${esc(label(x.recording_status))}</span></div></div><div class="monitor-meta"><div class="meta">最近检测：${esc(timeText(x.last_checked_at))}</div><div class="meta">录制时长：${esc(x.recording_status==='recording'?duration(x.recording_started_at):'--')}</div>${x.last_error?`<div class="meta error-text">最近错误：${esc(x.last_error)}</div>`:''}</div><div class="monitor-actions"><button class="detail-btn" type="button" onclick="showDetail(${i})">查看详情</button>${['starting','recording','recovering'].includes(x.recording_status)?`<button class="stop-btn" type="button" onclick="stopRecording(${i},this)">停止录制</button>`:''}</div></article>`).join(''):'<div class="empty">还没有添加主播，请到“主播”页面添加地址。</div>';
+    if(box)box.innerHTML=d.monitors.length?d.monitors.map((x,i)=>`<article class="monitor" data-index="${i}"><div class="monitor-head"><div class="monitor-title"><div class="monitor-name">${esc(x.name)}</div><div class="meta">${esc(x.platform)}</div></div><div class="badge-row"><span class="badge ${esc(x.monitor_status)}">${esc(label(x.monitor_status))}</span><span class="badge ${esc(x.live_status)}">${esc(label(x.live_status))}</span><span class="badge ${esc(x.recording_status)}">录制：${esc(label(x.recording_status))}</span></div></div><div class="monitor-meta"><div class="meta">最近检测：${esc(timeText(x.last_checked_at))}</div><div class="meta">录制时长：${esc(x.recording_status==='recording'?duration(x.recording_started_at):'--')}</div>${x.last_error?`<div class="meta error-text">最近错误：${esc(x.last_error)}</div>`:''}</div><div class="monitor-actions"><button class="detail-btn" type="button" onclick="showDetail(${i})">查看详情</button>${['starting','recording','recovering'].includes(x.recording_status)?`<button class="stop-btn" type="button" onclick="stopRecording(${i},this)">停止录制</button>`:''}</div></article>`).join(''):'<div class="empty">还没有添加主播，请到“主播”页面添加地址。</div>';
+    renderHome();filterAnchors();
     const ev=document.getElementById('events');
-    if(ev)ev.innerHTML=d.events.length?d.events.map(x=>`<div class="event">${esc(eventText(x))}</div>`).join(''):'<div class="empty">暂无事件</div>';
-  }catch(e){const service=document.getElementById('service');if(service)service.textContent='状态读取失败'}
+    if(ev)ev.innerHTML=d.events.length?[...d.events].sort((a,b)=>Date.parse(b.timestamp||0)-Date.parse(a.timestamp||0)).map(x=>`<div class="event"><time>${esc(timeText(x.timestamp))}</time><strong>${esc(x.type||'事件')}</strong> ${esc(x.streamer_name||'系统')} · ${esc(x.message||'')}</div>`).join(''):'<div class="empty">暂无事件</div>';
+  }catch(e){const service=document.getElementById('service');if(service)service.textContent='状态读取失败，请检查网络或服务';}finally{statusPending=false}
 }
-loadStatus();setInterval(loadStatus,5000);
+document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{homeFilter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('selected',x===b));renderHome();}));
+function renderHome(){const box=document.getElementById('monitor-list');if(box){box.querySelectorAll('article.monitor').forEach(el=>{const x=currentData.monitors[Number(el.dataset.index)];el.hidden=!matches(x,homeFilter)});}}
+loadStatus();setInterval(()=>{if(!document.hidden)loadStatus()},10000);
 
 async function stopRecording(index,button){
   const item=currentData.monitors[index];if(!item||!confirm(`确定停止“${item.name}”当前录制吗？`))return;
@@ -232,13 +258,14 @@ async function stopRecording(index,button){
 
 function fileSize(bytes){if(!Number.isFinite(bytes))return'--';const units=['B','KB','MB','GB','TB'];let n=bytes,i=0;while(n>=1024&&i<units.length-1){n/=1024;i++}return`${n.toFixed(i?1:0)} ${units[i]}`}
 let recordingRefreshTimer=null;
+function renderRecordings(){const box=document.getElementById('recording-list');if(!box)return;const q=(document.getElementById('recording-search')?.value||'').toLowerCase(),sort=document.getElementById('recording-sort')?.value||'new';const items=recordingItems.map((x,i)=>({...x,sourceIndex:i})).filter(x=>x.name.toLowerCase().includes(q));items.sort((a,b)=>sort==='large'?b.size-a.size:sort==='small'?a.size-b.size:sort==='old'?Date.parse(a.modified_at)-Date.parse(b.modified_at):Date.parse(b.modified_at)-Date.parse(a.modified_at));box.innerHTML=items.length?items.map(x=>{const i=x.sourceIndex,status=x.recording_status||'completed',statusText=x.is_recording?label(status):'已完成';return`<article class="recording-item"><div class="recording-name" title="${attr(x.name)}">${esc(x.name)}</div><div class="recording-path" title="${attr(x.path)}">${esc(x.path)}</div><div class="recording-meta">${esc(x.format||'未知格式')} · ${esc(fileSize(x.size))} · 录制时间（文件修改时间）：${esc(timeText(x.modified_at))}</div><div class="recording-meta">上传状态：${esc(x.upload_status==='unknown'?'暂无可靠记录':x.upload_status)}</div><div class="recording-status ${attr(status)}">${esc(statusText)}</div><div class="recording-actions"><button class="recording-delete" type="button" ${x.is_recording?'disabled':''} onclick="deleteRecording(${i},this)">${x.is_recording?'录制中':'删除'}</button></div></article>`}).join(''):'<div class="empty">没有匹配的录像</div>';box._items=recordingItems;}
+document.getElementById('recording-search')?.addEventListener('input',renderRecordings);document.getElementById('recording-sort')?.addEventListener('change',renderRecordings);
 async function loadRecordings(showLoading=true){
   const box=document.getElementById('recording-list');if(!box)return;
   if(showLoading)box.innerHTML='<div class="empty">正在加载录像…</div>';
   try{
     const r=await fetch('/api/recordings',{cache:'no-store'}),d=await r.json();
-    box.innerHTML=d.recordings.length?d.recordings.map((x,i)=>{const status=x.recording_status||'completed',statusText=status==='recording'?'● 正在录制':status==='stopping'?'● 停止中':status==='starting'?'● 启动中':status==='recovering'?'● 恢复中':'已完成';return`<article class="recording-item"><div class="recording-name" title="${attr(x.name)}">${esc(x.name)}</div><div class="recording-path" title="${attr(x.directory)}">目录：${esc(x.directory)}</div><div class="recording-meta">${esc(fileSize(x.size))} · ${esc(timeText(x.modified_at))}</div><div class="recording-status ${attr(status)}">${esc(statusText)}</div><div class="recording-actions"><button class="recording-delete" type="button" ${x.is_recording?'disabled':''} onclick="deleteRecording(${i},this)">${x.is_recording?'录制中':'删除'}</button></div></article>`}).join(''):'<div class="empty">暂无录像</div>';
-    box._items=d.recordings;
+    if(!r.ok)throw new Error('录像服务不可用');recordingItems=d.recordings;renderRecordings();
     const hasActive=d.recordings.some(x=>x.is_recording);
     if(hasActive&&!recordingRefreshTimer)recordingRefreshTimer=setInterval(()=>loadRecordings(false),8000);
     if(!hasActive&&recordingRefreshTimer){clearInterval(recordingRefreshTimer);recordingRefreshTimer=null}
@@ -268,9 +295,12 @@ if(testBtn)testBtn.addEventListener('click',async()=>{
   finally{testBtn.disabled=false;testBtn.textContent='测试 WebDAV 连接'}
 });
 
+const search=document.getElementById('anchor-search'),anchorFilter=document.getElementById('anchor-filter');function filterAnchors(){document.querySelectorAll('.anchor-row').forEach(row=>{const x=currentData.monitors.find(m=>m.url===row.dataset.url)||{live_status:'unknown',monitor_status:'waiting',recording_status:'idle'};row.hidden=!((row.dataset.name+' '+row.dataset.url).toLowerCase().includes((search?.value||'').toLowerCase())&&matches(x,anchorFilter?.value||'all'))})}search?.addEventListener('input',filterAnchors);anchorFilter?.addEventListener('change',filterAnchors);
+function confirmBatch(form){const n=form.querySelectorAll('input:checked').length;return n>0?confirm(`确认删除选中的 ${n} 位主播？`):(showNotice('请先选择主播'),false)}
 const p=new URLSearchParams(location.search);
-if(p.get('success')==='true'){
-  const t=document.createElement('div');t.className='toast';t.textContent='保存成功';document.body.appendChild(t);
+if(p.get('error'))showNotice('操作失败：目标无效或链接格式错误');
+if(p.has('success')){
+  const t=document.createElement('div');t.className='toast';t.textContent=p.get('success')==='deleted'?'已删除所选主播':'保存成功';document.body.appendChild(t);
   setTimeout(()=>t.remove(),2200);history.replaceState({},'',location.pathname);
 }
 </script>

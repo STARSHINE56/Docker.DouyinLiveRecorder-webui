@@ -1,0 +1,10 @@
+# First build the default image; then use both compose files for source-mounted runs.
+# Python dependencies and system packages remain in the image outside /app.
+services:
+  app:
+    volumes:
+      - ./:/app:ro
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./backup_config:/app/backup_config
+      - ./downloads:/app/downloads
