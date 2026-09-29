@@ -48,6 +48,70 @@ class MediaValidationTests(unittest.TestCase):
         self.assertEqual(ready, [first, second])
 
 
+class UploadConfigCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.config_file = Path(self.temp.name) / 'config.ini'
+        self.config_patch = patch.object(uploader, 'CONFIG_FILE', self.config_file)
+        self.config_patch.start()
+        self.addCleanup(self.config_patch.stop)
+
+    def test_new_section_is_used_for_automatic_upload(self):
+        self.config_file.write_text(
+            '[云盘配置]\n自动上传录像 = 是\nWebDAV地址 = https://new.example/webdav\n'
+            'WebDAV用户名 = current\nWebDAV密码 = new-secret\n上传成功后删除本地 = 是\n',
+            encoding='utf-8-sig',
+        )
+        cfg = uploader.load_config()
+        self.assertEqual(cfg.get('WebDAV地址'), 'https://new.example/webdav')
+        self.assertEqual(cfg.get('WebDAV密码'), 'new-secret')
+        self.assertTrue(uploader.yes(cfg.get('自动上传录像')))
+        self.assertTrue(uploader.yes(cfg.get('上传成功后删除本地')))
+
+    def test_legacy_section_still_works(self):
+        self.config_file.write_text(
+            '[小蓝网盘]\n自动上传录像 = 是\nWebDAV地址 = https://old.example/webdav\n'
+            'WebDAV用户名 = legacy\nWebDAV密码 = old-secret\n', encoding='utf-8'
+        )
+        cfg = uploader.load_config()
+        self.assertEqual(cfg.get('WebDAV地址'), 'https://old.example/webdav')
+        self.assertEqual(cfg.get('WebDAV用户名'), 'legacy')
+        self.assertEqual(cfg.get('WebDAV密码'), 'old-secret')
+
+    def test_new_section_takes_priority_without_merging_old_credentials(self):
+        self.config_file.write_text(
+            '[小蓝网盘]\nWebDAV地址 = https://old.example\nWebDAV用户名 = old\n'
+            'WebDAV密码 = old-secret\n'
+            '[云盘配置]\nWebDAV地址 = https://new.example\nWebDAV用户名 = new\n'
+            'WebDAV密码 = new-secret\n', encoding='utf-8'
+        )
+        before = self.config_file.read_bytes()
+        cfg = uploader.load_config()
+        self.assertEqual((cfg.get('WebDAV地址'), cfg.get('WebDAV用户名'), cfg.get('WebDAV密码')),
+                         ('https://new.example', 'new', 'new-secret'))
+        self.assertEqual(self.config_file.read_bytes(), before)
+
+    def test_missing_sections_fail_clearly(self):
+        self.config_file.write_text('[其他设置]\nfoo = bar\n', encoding='utf-8')
+        with self.assertRaisesRegex(RuntimeError, r'云盘配置.*小蓝网盘'):
+            uploader.load_config()
+
+    def test_normal_upload_and_backfill_use_new_section(self):
+        self.config_file.write_text(
+            '[云盘配置]\n自动上传录像 = 是\nWebDAV地址 = https://dav.example/webdav\n'
+            '上传成功后删除本地 = 是\n', encoding='utf-8'
+        )
+        source = Path(self.temp.name) / 'clip.ts'
+        source.write_bytes(b'ts')
+        with patch.object(uploader, 'wait_for_mp4', return_value=[]):
+            self.assertEqual(uploader.main(['--save_file_path', str(source)]), 1)
+        self.assertEqual(uploader.main([
+            '--backfill-dir', self.temp.name, '--match', '*.ts', '--record_name', '主播'
+        ]), 0)
+        self.assertTrue(source.exists())
+
+
 class WebDavValidationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
