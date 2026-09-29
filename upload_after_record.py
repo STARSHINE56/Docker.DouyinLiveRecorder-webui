@@ -65,12 +65,11 @@ def load_config():
         encoding="utf-8-sig"
     )
 
-    if "小蓝网盘" not in config:
-        raise RuntimeError(
-            "缺少 [小蓝网盘]"
-        )
-
-    return config["小蓝网盘"]
+    if "云盘配置" in config:
+        return config["云盘配置"]
+    if "小蓝网盘" in config:
+        return config["小蓝网盘"]
+    raise RuntimeError("缺少 [云盘配置] 或 [小蓝网盘]")
 
 
 def join_url(base, *parts):
