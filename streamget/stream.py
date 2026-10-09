@@ -61,10 +61,21 @@ def probe_stream_has_audio(stream_url: str, timeout: int = 15) -> bool | None:
 
 
 def select_douyin_record_url(m3u8_url: str | None, flv_url: str | None,
-                             audio_probe=probe_stream_has_audio, warning=logger.warning) -> str | None:
-    """Prefer the Douyin source that actually contains an audio stream."""
+                             audio_probe=probe_stream_has_audio, warning=logger.warning,
+                             probe_results: dict | None = None) -> str | None:
+    """Prefer the Douyin source that actually contains an audio stream.
+
+    ``probe_results`` is an optional out-dict that receives the per-source probe
+    outcome: True (audio found), False (reachable but no audio) or None (the
+    probe itself failed/timed out).  main.py relies on it to distinguish a
+    stream that is confirmed reachable from one whose status is unknown.
+    """
     m3u8_has_audio = audio_probe(m3u8_url) if m3u8_url else False
     flv_has_audio = audio_probe(flv_url) if flv_url else False
+
+    if probe_results is not None:
+        probe_results['m3u8'] = m3u8_has_audio
+        probe_results['flv'] = flv_has_audio
 
     if m3u8_has_audio is True:
         return m3u8_url

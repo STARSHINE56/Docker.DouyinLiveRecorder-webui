@@ -90,6 +90,34 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
         room_data2['anchor_name'] = room_data2['owner']['nickname']
         return room_data2
 
+    async def get_room_by_web_rid(web_rid: str) -> tuple[list, str]:
+        """Query a live room by web_rid only.
+
+        Douyin short links commonly resolve to ``webcast.amemv.com/douyin/
+        webcast/reflow/{room_id}`` which carries no ``sec_user_id``.  For live
+        rooms the numeric ``room_id`` doubles as ``web_rid``, so we can still
+        query the room through the web ``enter`` API without a sec_user_id.
+        Returns (rooms, api_nickname); rooms is empty when the room is offline.
+        """
+        params = {
+            "aid": "6383",
+            "app_name": "douyin_web",
+            "live_id": "1",
+            "device_platform": "web",
+            "language": "zh-CN",
+            "browser_language": "zh-CN",
+            "browser_platform": "Win32",
+            "browser_name": "Chrome",
+            "browser_version": "116.0.0.0",
+            "web_rid": web_rid,
+        }
+        api = f'https://live.douyin.com/webcast/room/web/enter/?{urllib.parse.urlencode(params)}'
+        json_str = await async_req(url=api, proxy_addr=proxy_addr, headers=headers)
+        json_data = json.loads(json_str)['data']
+        rooms = json_data.get('data') or []
+        api_nick = (json_data.get('user') or {}).get('nickname') or ''
+        return rooms, api_nick
+
     try:
         profile_headers = dict(headers)
         profile = await resolve_douyin_profile(url, proxy_addr=proxy_addr, headers=profile_headers)
@@ -105,53 +133,43 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
 
         web_rid = profile.get("web_rid")
         if web_rid:
-            params = {
-                "aid": "6383",
-                "app_name": "douyin_web",
-                "live_id": "1",
-                "device_platform": "web",
-                "language": "zh-CN",
-                "browser_language": "zh-CN",
-                "browser_platform": "Win32",
-                "browser_name": "Chrome",
-                "browser_version": "116.0.0.0",
-                "web_rid": web_rid
-
-            }
-            api = f'https://live.douyin.com/webcast/room/web/enter/?{urllib.parse.urlencode(params)}'
-            json_str = await async_req(url=api, proxy_addr=proxy_addr, headers=headers)
-            json_data = json.loads(json_str)['data']
-            rooms = json_data.get('data') or []
+            rooms, api_nick = await get_room_by_web_rid(web_rid)
             if not rooms:
-                offline_name = (json_data.get('user') or {}).get('nickname') or nickname
+                offline_name = api_nick or nickname
                 if not offline_name:
                     offline_name = (await fetch_douyin_user_page(
                         url, proxy_addr=proxy_addr, headers=profile_headers
                     )).get("nickname", "")
                 return {"anchor_name": offline_name, "status": 4, "is_live": False, "web_rid": web_rid}
             room_data = rooms[0]
-            room_data['anchor_name'] = json_data.get('user', {}).get('nickname') or nickname
+            room_data['anchor_name'] = api_nick or nickname
         else:
             room_id = profile.get("room_id")
             sec_uid = profile.get("sec_user_id")
             if room_id and sec_uid:
-                data = (room_id, sec_uid)
+                room_data = await get_app_data(room_id, sec_uid)
             else:
                 legacy_data = await get_sec_user_id(url, proxy_addr=proxy_addr)
                 if legacy_data:
                     legacy_room_id, legacy_sec_uid = legacy_data
-                    data = (legacy_room_id, sec_uid or legacy_sec_uid)
+                    room_data = await get_app_data(legacy_room_id, sec_uid or legacy_sec_uid)
+                elif room_id:
+                    # reflow short links give room_id only; room_id doubles as web_rid.
+                    rooms, api_nick = await get_room_by_web_rid(room_id)
+                    if not rooms:
+                        return {
+                            "anchor_name": api_nick or nickname,
+                            "status": 4,
+                            "is_live": False,
+                            "room_id": room_id,
+                        }
+                    room_data = rooms[0]
+                    room_data['anchor_name'] = api_nick or nickname
                 else:
-                    data = None
-
-            if data:
-                _room_id, _sec_uid = data
-                room_data = await get_app_data(_room_id, _sec_uid)
-            else:
-                unique_id = await get_unique_id(url, proxy_addr=proxy_addr)
-                if unique_id:
-                    return await get_douyin_stream_data(f'https://live.douyin.com/{unique_id}')
-                raise RuntimeError("无法解析抖音主播主页")
+                    unique_id = await get_unique_id(url, proxy_addr=proxy_addr)
+                    if unique_id:
+                        return await get_douyin_stream_data(f'https://live.douyin.com/{unique_id}')
+                    raise RuntimeError("无法解析抖音主播主页")
 
         if room_data['status'] == 2:
             if 'stream_url' not in room_data:
@@ -176,10 +194,14 @@ async def get_douyin_app_stream_data(url: str, proxy_addr: OptionalStr = None, c
                     flv_pull_url = room_data['stream_url']['flv_pull_url']
                     room_data['stream_url']['hls_pull_url_map'] = {**origin_m3u8, **hls_pull_url_map}
                     room_data['stream_url']['flv_pull_url'] = {**origin_flv, **flv_pull_url}
+
+        return room_data
     except Exception as e:
+        # Do NOT silently convert an API/parse failure into "主播未开播".
+        # main.py turns an exception into a failed check (monitor_status=error),
+        # so the WebUI surfaces the error instead of reporting a false offline.
         print(f"Error message: {e} Error line: {e.__traceback__.tb_lineno}")
-        room_data = {'anchor_name': ""}
-    return room_data
+        raise
 
 
 @trace_error_decorator
